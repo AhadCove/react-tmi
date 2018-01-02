@@ -1,7 +1,7 @@
 var WebSocketServer = require('ws').Server;
-var tmi = require('../index.js');
+var tmi = require('../src/index.js');
 
-var noop = function() {};
+var noop = function () { };
 
 var tests = [
     ':tmi.twitch.tv NOTICE #schmoopiie :Login unsuccessful.',
@@ -9,10 +9,10 @@ var tests = [
     ':tmi.twitch.tv NOTICE #schmoopiie :Invalid NICK.'
 ];
 
-describe('handling authentication', function() {
-    beforeEach(function() {
+describe('handling authentication', function () {
+    beforeEach(function () {
         // Initialize websocket server
-        this.server = new WebSocketServer({port: 7000});
+        this.server = new WebSocketServer({ port: 7000 });
         this.client = new tmi.client({
             logger: {
                 error: noop,
@@ -26,29 +26,29 @@ describe('handling authentication', function() {
         });
     });
 
-    afterEach(function() {
+    afterEach(function () {
         // Shut down websocket server
         this.server.close();
         this.client = null;
     });
 
-    tests.forEach(function(test) {
-        it(`should handle ${test}`, function(cb) {
+    tests.forEach(function (test) {
+        it(`should handle ${test}`, function (cb) {
             var client = this.client;
             var server = this.server;
 
             var parts = test.split(':');
             var message = parts[parts.length - 1].trim();
 
-            server.on('connection', function(ws) {
-                ws.on('message', function(message) {
+            server.on('connection', function (ws) {
+                ws.on('message', function (message) {
                     if (!message.indexOf('USER')) {
                         ws.send(test);
                     }
                 });
             });
 
-            client.on('disconnected', function(reason) {
+            client.on('disconnected', function (reason) {
                 reason.should.eql(message);
                 cb();
             });

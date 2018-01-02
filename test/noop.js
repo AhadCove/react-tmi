@@ -1,4 +1,4 @@
-var tmi = require('../index.js');
+var tmi = require('../src/index.js');
 
 var tests = [
     ':tmi.twitch.tv 002',
@@ -14,10 +14,10 @@ var tests = [
     ':schmoopiie!schmoopiie@schmoopiie.tmi.twitch.tv 366'
 ];
 
-describe('no-op server events', function() {
-    tests.forEach(function(test) {
-        it(`should treat "${test}" as a no-op`, function() {
-            var stopTest = function() {
+describe('no-op server events', function () {
+    tests.forEach(function (test) {
+        it(`should treat "${test}" as a no-op`, function () {
+            var stopTest = function () {
                 'Should not call this'.should.not.be.ok();
             };
 
@@ -32,7 +32,7 @@ describe('no-op server events', function() {
                 }
             });
 
-            client._onMessage({data: test});
+            client._onMessage({ data: test });
         });
     });
 });

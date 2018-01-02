@@ -1,4 +1,4 @@
-var tmi = require('../index.js');
+var tmi = require('../src/index.js');
 
 var events = [{
     name: 'action',
@@ -214,9 +214,9 @@ var events = [{
             'user-type': 'staff'
         },
         {
-          'prime': true,
-          'plan': 'Prime',
-          'planName': 'Channel Subscription (Schmoopiie)'
+            'prime': true,
+            'plan': 'Prime',
+            'planName': 'Channel Subscription (Schmoopiie)'
         }
     ]
 }, {
@@ -249,9 +249,9 @@ var events = [{
             'user-type': 'staff'
         },
         {
-          'prime': true,
-          'plan': 'Prime',
-          'planName': 'Channel Subscription (Schmoopiie)'
+            'prime': true,
+            'plan': 'Prime',
+            'planName': 'Channel Subscription (Schmoopiie)'
         },
     ]
 }, {
@@ -275,9 +275,9 @@ var events = [{
         '#schmoopiie',
         'Schmoopiie',
         {
-          'prime': true,
-          'plan': 'Prime',
-          'planName': 'Channel Subscription (Schmoopiie)'
+            'prime': true,
+            'plan': 'Prime',
+            'planName': 'Channel Subscription (Schmoopiie)'
         },
         'Great stream -- keep it up!',
         {
@@ -344,36 +344,36 @@ var events = [{
     ]
 }];
 
-describe('client events', function() {
-    events.forEach(function(e) {
+describe('client events', function () {
+    events.forEach(function (e) {
         var name = e.name;
         var data = e.data;
         var expected = e.expected;
-        it(`should emit ${name}`, function(cb) {
+        it(`should emit ${name}`, function (cb) {
             var client = new tmi.client();
 
-            client.on(name, function() {
+            client.on(name, function () {
                 var args = Array.prototype.slice.call(arguments);
                 'Should have reached this callback'.should.be.ok();
-                expected && expected.forEach(function(data, index) {
+                expected && expected.forEach(function (data, index) {
                     args[index].should.eql(data);
                 });
                 cb();
             });
 
-            client._onMessage({data: data});
+            client._onMessage({ data: data });
         });
     });
 
-    it('should emit disconnected', function(cb) {
+    it('should emit disconnected', function (cb) {
         var client = new tmi.client();
 
-        client.on("disconnected", function(reason) {
+        client.on("disconnected", function (reason) {
             reason.should.be.exactly("Connection closed.").and.be.a.String();
             cb();
         });
 
-        client.log.error = function noop() {};
+        client.log.error = function noop() { };
         client._onError();
     });
 });
