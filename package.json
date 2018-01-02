@@ -1,5 +1,5 @@
 {
-  "name": "tmi.js",
+  "name": "react-tmi",
   "version": "1.2.1",
   "description": "Javascript library for the Twitch Messaging Interface.",
   "keywords": [
@@ -28,11 +28,7 @@
   "engines": {
     "node": ">=4.4.0"
   },
-  "author": "Schmoopiie",
-  "contributors": [{
-    "name": "celluj34",
-    "email": "celluj34@gmail.com"
-  }],
+  "author": "AhadCove",
   "scripts": {
     "test": "istanbul cover node_modules/mocha/bin/_mocha -- -R spec --require should",
     "prepare": "npm run build",
@@ -49,10 +45,10 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git://github.com/tmijs/tmi.js.git"
+    "url": "git://github.com/AhadCove/react-tmi.git"
   },
   "bugs": {
-    "url": "https://github.com/tmijs/tmi.js/issues"
+    "url": "https://github.com/AhadCove/react-tmi/issues"
   },
   "dependencies": {
     "request": "2.74.0",
