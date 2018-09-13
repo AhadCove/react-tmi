@@ -51,8 +51,8 @@
     "url": "https://github.com/AhadCove/react-tmi/issues"
   },
   "dependencies": {
-    "request": "2.74.0",
-    "ws": "1.0.1"
+    "request": "2.86.0",
+    "ws": "5.1.1"
   },
   "devDependencies": {
     "babel-cli": "6.24.1",
@@ -60,7 +60,7 @@
     "babelify": "7.2.0",
     "browserify": "13.0.0",
     "hook-std": "0.2.0",
-    "istanbul": "0.4.2",
+    "istanbul": "0.4.5",
     "mkdirp": "0.5.1",
     "mocha": "2.2.5",
     "npm-run-all": "1.7.0",

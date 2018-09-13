@@ -687,9 +687,9 @@ client.prototype.handleMessage = function handleMessage(message) {
                     }
 
                     // Emote-sets has changed, update it..
-                    if (message.tags["emote-sets"] !== this.emotes) {
-                        this._updateEmoteset(message.tags["emote-sets"]);
-                    }
+                    // if (message.tags["emote-sets"] !== this.emotes) {
+                    //     this._updateEmoteset(message.tags["emote-sets"]);
+                    // }
 
                     this.userstate[channel] = message.tags;
                     break;
@@ -700,7 +700,7 @@ client.prototype.handleMessage = function handleMessage(message) {
 
                     // Received emote-sets..
                     if (typeof message.tags["emote-sets"] !== "undefined") {
-                        this._updateEmoteset(message.tags["emote-sets"]);
+                        // this._updateEmoteset(message.tags["emote-sets"]);
                     }
                     break;
 
