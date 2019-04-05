@@ -1,7 +1,12 @@
 var WebSocketServer = require('ws').Server;
 var tmi = require('../src/index.js');
 
-var noop = function () { };
+var noop = function() {};
+var catchConnectError = err => {
+    if(!['Connection closed.', 'Login unsuccessful.', 'Error logging in.', 'Invalid NICK.'].includes(err)) {
+        console.error(err);
+    }
+};
 
 var tests = [
     ':tmi.twitch.tv NOTICE #schmoopiie :Login unsuccessful.',
@@ -32,17 +37,17 @@ describe('handling authentication', function () {
         this.client = null;
     });
 
-    tests.forEach(function (test) {
-        it(`should handle ${test}`, function (cb) {
+    tests.forEach(function(test) {
+        it(`handle ${test}`, function(cb) {
             var client = this.client;
             var server = this.server;
 
             var parts = test.split(':');
             var message = parts[parts.length - 1].trim();
 
-            server.on('connection', function (ws) {
-                ws.on('message', function (message) {
-                    if (!message.indexOf('USER')) {
+            server.on('connection', function(ws) {
+                ws.on('message', function(message) {
+                    if (!message.indexOf('NICK')) {
                         ws.send(test);
                     }
                 });
@@ -53,7 +58,7 @@ describe('handling authentication', function () {
                 cb();
             });
 
-            client.connect();
+            client.connect().catch(catchConnectError);
         });
     });
 });

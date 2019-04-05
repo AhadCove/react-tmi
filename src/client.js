@@ -76,653 +76,761 @@ for(var methodName in commands) {
 
 // Handle parsed chat server message..
 client.prototype.handleMessage = function handleMessage(message) {
-    if (!_.isNull(message)) {
-        var channel = _.channel(_.get(message.params[0], null));
-        var msg = _.get(message.params[1], null);
-        var msgid = _.get(message.tags["msg-id"], null);
+    if (_.isNull(message)) {
+        return;
+    }
 
-        // Parse badges and emotes..
-        message.tags = parse.badges(parse.emotes(message.tags));
+    this.emit("raw_message", JSON.parse(JSON.stringify(message)), message);
 
-        // Transform IRCv3 tags..
-        if (message.tags) {
-            for(var key in message.tags) {
-                if (key !== "emote-sets" && key !== "ban-duration" && key !== "bits") {
-                    if (_.isBoolean(message.tags[key])) { message.tags[key] = null; }
-                    else if (message.tags[key] === "1") { message.tags[key] = true; }
-                    else if (message.tags[key] === "0") { message.tags[key] = false; }
+    var channel = _.channel(_.get(message.params[0], null));
+    var msg = _.get(message.params[1], null);
+    var msgid = _.get(message.tags["msg-id"], null);
+
+    // Parse badges, badge-info and emotes..
+    message.tags = parse.badges(parse.badgeInfo(parse.emotes(message.tags)));
+
+    // Transform IRCv3 tags..
+    if (message.tags) {
+        var tags = message.tags;
+        for(var key in tags) {
+            if (key !== "emote-sets" && key !== "ban-duration" && key !== "bits") {
+                var value = tags[key];
+                if (_.isBoolean(value)) { value = null; }
+                else if (value === "1") { value = true; }
+                else if (value === "0") { value = false; }
+                else if(_.isString(value)) { value = _.unescapeIRC(value); }
+                tags[key] = value;
+            }
+        }
+    }
+
+    // Messages with no prefix..
+    if (_.isNull(message.prefix)) {
+        switch(message.command) {
+            // Received PING from server..
+            case "PING":
+                this.emit("ping");
+                if (!_.isNull(this.ws) && this.ws.readyState !== 2 && this.ws.readyState !== 3) {
+                    this.ws.send("PONG");
                 }
-            }
-        }
+                break;
 
-        // Messages with no prefix..
-        if (_.isNull(message.prefix)) {
-            switch(message.command) {
-                // Received PING from server..
-                case "PING":
-                    this.emit("ping");
+            // Received PONG from server, return current latency..
+            case "PONG":
+                var currDate = new Date();
+                this.currentLatency = (currDate.getTime() - this.latency.getTime()) / 1000;
+                this.emits(["pong", "_promisePing"], [[this.currentLatency]]);
+
+                clearTimeout(this.pingTimeout);
+                break;
+
+            default:
+                this.log.warn(`Could not parse message with no prefix:\n${JSON.stringify(message, null, 4)}`);
+                break;
+        }
+    }
+
+    // Messages with "tmi.twitch.tv" as a prefix..
+    else if (message.prefix === "tmi.twitch.tv") {
+        switch(message.command) {
+            case "002":
+            case "003":
+            case "004":
+            case "375":
+            case "376":
+            case "CAP":
+                break;
+
+            // Retrieve username from server..
+            case "001":
+                this.username = message.params[0];
+                break;
+
+            // Connected to server..
+            case "372":
+                this.log.info("Connected to server.");
+                this.userstate["#tmijs"] = {};
+                this.emits(["connected", "_promiseConnect"], [[this.server, this.port], [null]]);
+                this.reconnections = 0;
+                this.reconnectTimer = this.reconnectInterval;
+
+                // Set an internal ping timeout check interval..
+                this.pingLoop = setInterval(() => {
+                    // Make sure the connection is opened before sending the message..
                     if (!_.isNull(this.ws) && this.ws.readyState !== 2 && this.ws.readyState !== 3) {
-                        this.ws.send("PONG");
+                        this.ws.send("PING");
                     }
-                    break;
+                    this.latency = new Date();
+                    this.pingTimeout = setTimeout(() => {
+                        if (!_.isNull(this.ws)) {
+                            this.wasCloseCalled = false;
+                            this.log.error("Ping timeout.");
+                            this.ws.close();
 
-                // Received PONG from server, return current latency..
-                case "PONG":
-                    var currDate = new Date();
-                    this.currentLatency = (currDate.getTime() - this.latency.getTime()) / 1000;
-                    this.emits(["pong", "_promisePing"], [[this.currentLatency], [this.currentLatency]]);
-
-                    clearTimeout(this.pingTimeout);
-                    break;
-
-                default:
-                    this.log.warn(`Could not parse message with no prefix:\n${JSON.stringify(message, null, 4)}`);
-                    break;
-            }
-        }
-
-        // Messages with "tmi.twitch.tv" as a prefix..
-        else if (message.prefix === "tmi.twitch.tv") {
-            switch(message.command) {
-                case "002":
-                case "003":
-                case "004":
-                case "375":
-                case "376":
-                case "CAP":
-                    break;
-
-                // Retrieve username from server..
-                case "001":
-                    this.username = message.params[0];
-                    break;
-
-                // Connected to server..
-                case "372":
-                    this.log.info("Connected to server.");
-                    this.userstate["#tmijs"] = {};
-                    this.emits(["connected", "_promiseConnect"], [[this.server, this.port], [null]]);
-                    this.reconnections = 0;
-                    this.reconnectTimer = this.reconnectInterval;
-
-                    // Set an internal ping timeout check interval..
-                    this.pingLoop = setInterval(() => {
-                        // Make sure the connection is opened before sending the message..
-                        if (!_.isNull(this.ws) && this.ws.readyState !== 2 && this.ws.readyState !== 3) {
-                            this.ws.send("PING");
+                            clearInterval(this.pingLoop);
+                            clearTimeout(this.pingTimeout);
                         }
-                        this.latency = new Date();
-                        this.pingTimeout = setTimeout(() => {
-                            if (!_.isNull(this.ws)) {
-                                this.wasCloseCalled = false;
-                                this.log.error("Ping timeout.");
-                                this.ws.close();
+                    }, _.get(this.opts.connection.timeout, 9999));
+                }, 60000);
 
-                                clearInterval(this.pingLoop);
-                                clearTimeout(this.pingTimeout);
-                            }
-                        }, _.get(this.opts.connection.timeout, 9999));
-                    }, 60000);
+                // Join all the channels from configuration with a 2 seconds interval..
+                var joinQueue = new timer.queue(2000);
+                var joinChannels = _.union(this.opts.channels, this.channels);
+                this.channels = [];
 
-                    // Join all the channels from configuration with a 2 seconds interval..
-                    var joinQueue = new timer.queue(2000);
-                    var joinChannels = _.union(this.opts.channels, this.channels);
-                    this.channels = [];
-
-                    for (var i = 0; i < joinChannels.length; i++) {
-                        var self = this;
-                        joinQueue.add(function(i) {
-                            if (!_.isNull(self.ws) && self.ws.readyState !== 2 && self.ws.readyState !== 3) {
-                                self.ws.send(`JOIN ${_.channel(joinChannels[i])}`);
-                            }
-                        }.bind(this, i))
-                    }
-
-                    joinQueue.run();
-                    break;
-
-                // https://github.com/justintv/Twitch-API/blob/master/chat/capabilities.md#notice
-                case "NOTICE":
-                    switch(msgid) {
-                        // This room is now in subscribers-only mode.
-                        case "subs_on":
-                            this.log.info(`[${channel}] This room is now in subscribers-only mode.`);
-                            this.emits(["subscriber", "subscribers", "_promiseSubscribers"], [[channel, true], [channel, true], [null]]);
-                            break;
-
-                        // This room is no longer in subscribers-only mode.
-                        case "subs_off":
-                            this.log.info(`[${channel}] This room is no longer in subscribers-only mode.`);
-                            this.emits(["subscriber", "subscribers", "_promiseSubscribersoff"], [[channel, false], [channel, false], [null]]);
-                            break;
-
-                        // This room is now in emote-only mode.
-                        case "emote_only_on":
-                            this.log.info(`[${channel}] This room is now in emote-only mode.`);
-                            this.emits(["emoteonly", "_promiseEmoteonly"], [[channel, true], [null]]);
-                            break;
-
-                        // This room is no longer in emote-only mode.
-                        case "emote_only_off":
-                            this.log.info(`[${channel}] This room is no longer in emote-only mode.`);
-                            this.emits(["emoteonly", "_promiseEmoteonlyoff"], [[channel, false], [null]]);
-                            break;
-
-                        // Do not handle slow_on/off here, listen to the ROOMSTATE notice instead as it returns the delay.
-                        case "slow_on":
-                        case "slow_off":
-                            break;
-
-                        // Do not handle followers_on/off here, listen to the ROOMSTATE notice instead as it returns the delay.
-                        case "followers_on_zero":
-                        case "followers_on":
-                        case "followers_off":
-                            break;
-
-                        // This room is now in r9k mode.
-                        case "r9k_on":
-                            this.log.info(`[${channel}] This room is now in r9k mode.`);
-                            this.emits(["r9kmode", "r9kbeta", "_promiseR9kbeta"], [[channel, true], [channel, true], [null]]);
-                            break;
-
-                        // This room is no longer in r9k mode.
-                        case "r9k_off":
-                            this.log.info(`[${channel}] This room is no longer in r9k mode.`);
-                            this.emits(["r9kmode", "r9kbeta", "_promiseR9kbetaoff"], [[channel, false], [channel, false], [null]]);
-                            break;
-
-                        // The moderators of this room are [...]
-                        case "room_mods":
-                            var splitted = msg.split(":");
-                            var mods = splitted[1].replace(/,/g, "").split(":").toString().toLowerCase().split(" ");
-
-                            for(var i = mods.length - 1; i >= 0; i--) {
-                                if(mods[i] === "") {
-                                    mods.splice(i, 1);
-                                }
-                            }
-
-                            this.emits(["_promiseMods", "mods"], [[null, mods], [channel, mods]]);
-                            break;
-
-                        // There are no moderators for this room.
-                        case "no_mods":
-                            this.emit("_promiseMods", null, []);
-                            break;
-
-                        // Channel is suspended..
-                        case "msg_channel_suspended":
-                            this.emits(["notice", "_promiseJoin"], [[channel, msgid, msg], [msgid]]);
-                            break;
-
-                        // Ban command failed..
-                        case "already_banned":
-                        case "bad_ban_admin":
-                        case "bad_ban_broadcaster":
-                        case "bad_ban_global_mod":
-                        case "bad_ban_self":
-                        case "bad_ban_staff":
-                        case "usage_ban":
-                            this.log.info(`[${channel}] ${msg}`);
-                            this.emits(["notice", "_promiseBan"], [[channel, msgid, msg], [msgid]]);
-                            break;
-
-                        // Ban command success..
-                        case "ban_success":
-                            this.log.info(`[${channel}] ${msg}`);
-                            this.emits(["notice", "_promiseBan"], [[channel, msgid, msg], [null]]);
-                            break;
-
-                        // Clear command failed..
-                        case "usage_clear":
-                            this.log.info(`[${channel}] ${msg}`);
-                            this.emits(["notice", "_promiseClear"], [[channel, msgid, msg], [msgid]]);
-                            break;
-
-                        // Mods command failed..
-                        case "usage_mods":
-                            this.log.info(`[${channel}] ${msg}`);
-                            this.emits(["notice", "_promiseMods"], [[channel, msgid, msg], [msgid, []]]);
-                            break;
-
-                        // Mod command success..
-                        case "mod_success":
-                            this.log.info(`[${channel}] ${msg}`);
-                            this.emits(["notice", "_promiseMod"], [[channel, msgid, msg], [null]]);
-                            break;
-
-                        // Mod command failed..
-                        case "usage_mod":
-                        case "bad_mod_banned":
-                        case "bad_mod_mod":
-                            this.log.info(`[${channel}] ${msg}`);
-                            this.emits(["notice", "_promiseMod"], [[channel, msgid, msg], [msgid]]);
-                            break;
-
-                        // Unmod command success..
-                        case "unmod_success":
-                            this.log.info(`[${channel}] ${msg}`);
-                            this.emits(["notice", "_promiseUnmod"], [[channel, msgid, msg], [null]]);
-                            break;
-
-                        // Unmod command failed..
-                        case "usage_unmod":
-                        case "bad_unmod_mod":
-                            this.log.info(`[${channel}] ${msg}`);
-                            this.emits(["notice", "_promiseUnmod"], [[channel, msgid, msg], [msgid]]);
-                            break;
-
-                        // Color command success..
-                        case "color_changed":
-                            this.log.info(`[${channel}] ${msg}`);
-                            this.emits(["notice", "_promiseColor"], [[channel, msgid, msg], [null]]);
-                            break;
-
-                        // Color command failed..
-                        case "usage_color":
-                        case "turbo_only_color":
-                            this.log.info(`[${channel}] ${msg}`);
-                            this.emits(["notice", "_promiseColor"], [[channel, msgid, msg], [msgid]]);
-                            break;
-
-                        // Commercial command success..
-                        case "commercial_success":
-                            this.log.info(`[${channel}] ${msg}`);
-                            this.emits(["notice", "_promiseCommercial"], [[channel, msgid, msg], [null]]);
-                            break;
-
-                        // Commercial command failed..
-                        case "usage_commercial":
-                        case "bad_commercial_error":
-                            this.log.info(`[${channel}] ${msg}`);
-                            this.emits(["notice", "_promiseCommercial"], [[channel, msgid, msg], [msgid]]);
-                            break;
-
-                        // Host command success..
-                        case "hosts_remaining":
-                            this.log.info(`[${channel}] ${msg}`);
-                            var remainingHost = (!isNaN(msg.charAt(0)) ? msg.charAt(0) : 0);
-                            this.emits(["notice", "_promiseHost"], [[channel, msgid, msg], [null, ~~remainingHost]]);
-                            break;
-
-                        // Host command failed..
-                        case "bad_host_hosting":
-                        case "bad_host_rate_exceeded":
-                        case "bad_host_error":
-                        case "usage_host":
-                            this.log.info(`[${channel}] ${msg}`);
-                            this.emits(["notice", "_promiseHost"], [[channel, msgid, msg], [msgid, null]]);
-                            break;
-
-                        // r9kbeta command failed..
-                        case "already_r9k_on":
-                        case "usage_r9k_on":
-                            this.log.info(`[${channel}] ${msg}`);
-                            this.emits(["notice", "_promiseR9kbeta"], [[channel, msgid, msg], [msgid]]);
-                            break;
-
-                        // r9kbetaoff command failed..
-                        case "already_r9k_off":
-                        case "usage_r9k_off":
-                            this.log.info(`[${channel}] ${msg}`);
-                            this.emits(["notice", "_promiseR9kbetaoff"], [[channel, msgid, msg], [msgid]]);
-                            break;
-
-                        // Timeout command success..
-                        case "timeout_success":
-                            this.log.info(`[${channel}] ${msg}`);
-                            this.emits(["notice", "_promiseTimeout"], [[channel, msgid, msg], [null]]);
-                            break;
-
-                        // Subscribersoff command failed..
-                        case "already_subs_off":
-                        case "usage_subs_off":
-                            this.log.info(`[${channel}] ${msg}`);
-                            this.emits(["notice", "_promiseSubscribersoff"], [[channel, msgid, msg], [msgid]]);
-                            break;
-
-                        // Subscribers command failed..
-                        case "already_subs_on":
-                        case "usage_subs_on":
-                            this.log.info(`[${channel}] ${msg}`);
-                            this.emits(["notice", "_promiseSubscribers"], [[channel, msgid, msg], [msgid]]);
-                            break;
-
-                        // Emoteonlyoff command failed..
-                        case "already_emote_only_off":
-                        case "usage_emote_only_off":
-                            this.log.info(`[${channel}] ${msg}`);
-                            this.emits(["notice", "_promiseEmoteonlyoff"], [[channel, msgid, msg], [msgid]]);
-                            break;
-
-                        // Emoteonly command failed..
-                        case "already_emote_only_on":
-                        case "usage_emote_only_on":
-                            this.log.info(`[${channel}] ${msg}`);
-                            this.emits(["notice", "_promiseEmoteonly"], [[channel, msgid, msg], [msgid]]);
-                            break;
-
-                        // Slow command failed..
-                        case "usage_slow_on":
-                            this.log.info(`[${channel}] ${msg}`);
-                            this.emits(["notice", "_promiseSlow"], [[channel, msgid, msg], [msgid]]);
-                            break;
-
-                        // Slowoff command failed..
-                        case "usage_slow_off":
-                            this.log.info(`[${channel}] ${msg}`);
-                            this.emits(["notice", "_promiseSlowoff"], [[channel, msgid, msg], [msgid]]);
-                            break;
-
-                        // Timeout command failed..
-                        case "usage_timeout":
-                        case "bad_timeout_admin":
-                        case "bad_timeout_broadcaster":
-                        case "bad_timeout_duration":
-                        case "bad_timeout_global_mod":
-                        case "bad_timeout_self":
-                        case "bad_timeout_staff":
-                            this.log.info(`[${channel}] ${msg}`);
-                            this.emits(["notice", "_promiseTimeout"], [[channel, msgid, msg], [msgid]]);
-                            break;
-
-                        // Unban command success..
-                        // Unban can also be used to cancel an active timeout.
-                        case "untimeout_success":
-                        case "unban_success":
-                            this.log.info(`[${channel}] ${msg}`);
-                            this.emits(["notice", "_promiseUnban"], [[channel, msgid, msg], [null]]);
-                            break;
-
-                        // Unban command failed..
-                        case "usage_unban":
-                        case "bad_unban_no_ban":
-                            this.log.info(`[${channel}] ${msg}`);
-                            this.emits(["notice", "_promiseUnban"], [[channel, msgid, msg], [msgid]]);
-                            break;
-
-                        // Unhost command failed..
-                        case "usage_unhost":
-                        case "not_hosting":
-                            this.log.info(`[${channel}] ${msg}`);
-                            this.emits(["notice", "_promiseUnhost"], [[channel, msgid, msg], [msgid]]);
-                            break;
-
-                        // Whisper command failed..
-                        case "whisper_invalid_login":
-                        case "whisper_invalid_self":
-                        case "whisper_limit_per_min":
-                        case "whisper_limit_per_sec":
-                        case "whisper_restricted_recipient":
-                            this.log.info(`[${channel}] ${msg}`);
-                            this.emits(["notice", "_promiseWhisper"], [[channel, msgid, msg], [msgid]]);
-                            break;
-
-                        // Permission error..
-                        case "no_permission":
-                        case "msg_banned":
-                            this.log.info(`[${channel}] ${msg}`);
-                            this.emits([
-                                "notice",
-                                "_promiseBan",
-                                "_promiseClear",
-                                "_promiseUnban",
-                                "_promiseTimeout",
-                                "_promiseMods",
-                                "_promiseMod",
-                                "_promiseUnmod",
-                                "_promiseCommercial",
-                                "_promiseHost",
-                                "_promiseUnhost",
-                                "_promiseR9kbeta",
-                                "_promiseR9kbetaoff",
-                                "_promiseSlow",
-                                "_promiseSlowoff",
-                                "_promiseFollowers",
-                                "_promiseFollowersoff",
-                                "_promiseSubscribers",
-                                "_promiseSubscribersoff",
-                                "_promiseEmoteonly",
-                                "_promiseEmoteonlyoff"
-                            ], [
-                                [channel, msgid, msg],
-                                [msgid], [msgid], [msgid], [msgid],
-                                [msgid], [msgid], [msgid], [msgid],
-                                [msgid], [msgid], [msgid], [msgid],
-                                [msgid], [msgid], [msgid], [msgid],
-                                [msgid], [msgid], [msgid], [msgid]
-                            ]);
-                            break;
-
-                        // Unrecognized command..
-                        case "unrecognized_cmd":
-                            this.log.info(`[${channel}] ${msg}`);
-                            this.emit("notice", channel, msgid, msg);
-
-                            if (msg.split(" ").splice(-1)[0] === "/w") {
-                                this.log.warn("You must be connected to a group server to send or receive whispers.");
-                            }
-                            break;
-
-                        // Send the following msg-ids to the notice event listener..
-                        case "cmds_available":
-                        case "host_target_went_offline":
-                        case "msg_censored_broadcaster":
-                        case "msg_duplicate":
-                        case "msg_emoteonly":
-                        case "msg_verified_email":
-                        case "msg_ratelimit":
-                        case "msg_subsonly":
-                        case "msg_timedout":
-                        case "no_help":
-                        case "usage_disconnect":
-                        case "usage_help":
-                        case "usage_me":
-                            this.log.info(`[${channel}] ${msg}`);
-                            this.emit("notice", channel, msgid, msg);
-                            break;
-
-                        // Ignore this because we are already listening to HOSTTARGET..
-                        case "host_on":
-                        case "host_off":
-                            //
-                            break;
-
-                        default:
-                            if (msg.includes("Login unsuccessful") || msg.includes("Login authentication failed")) {
-                                this.wasCloseCalled = false;
-                                this.reconnect = false;
-                                this.reason = msg;
-                                this.log.error(this.reason);
-                                this.ws.close();
-                            }
-                            else if (msg.includes("Error logging in") || msg.includes("Improperly formatted auth")) {
-                                this.wasCloseCalled = false;
-                                this.reconnect = false;
-                                this.reason = msg;
-                                this.log.error(this.reason);
-                                this.ws.close();
-                            }
-                            else if (msg.includes("Invalid NICK")) {
-                                this.wasCloseCalled = false;
-                                this.reconnect = false;
-                                this.reason = "Invalid NICK.";
-                                this.log.error(this.reason);
-                                this.ws.close();
-                            }
-                            else {
-                                this.log.warn(`Could not parse NOTICE from tmi.twitch.tv:\n${JSON.stringify(message, null, 4)}`);
-                            }
-                            break;
-                    }
-                    break;
-
-                // Handle subanniversary / resub..
-                case "USERNOTICE":
-                    if (msgid === "resub") {
-                        var username = message.tags["display-name"] || message.tags["login"];
-                        var plan = message.tags["msg-param-sub-plan"];
-                        var planName = _.replaceAll(_.get(message.tags["msg-param-sub-plan-name"], null), {
-                            "\\\\s": " ",
-                            "\\\\:": ";",
-                            "\\\\\\\\": "\\",
-                            "\\r": "\r",
-                            "\\n": "\n"
-                        });
-                        var months = _.get(~~message.tags["msg-param-months"], null);
-                        var prime = plan.includes("Prime");
-                        var userstate = null;
-
-                        if (msg) {
-                            userstate = message.tags;
-                            userstate['message-type'] = 'resub';
+                for (var i = 0; i < joinChannels.length; i++) {
+                    var self = this;
+                    joinQueue.add(function(i) {
+                        if (!_.isNull(self.ws) && self.ws.readyState !== 2 && self.ws.readyState !== 3) {
+                            self.ws.send(`JOIN ${_.channel(joinChannels[i])}`);
                         }
+                    }.bind(this, i))
+                }
 
+                joinQueue.run();
+                break;
+
+            // https://github.com/justintv/Twitch-API/blob/master/chat/capabilities.md#notice
+            case "NOTICE":
+                var nullArr = [null];
+                var noticeArr = [channel, msgid, msg];
+                var msgidArr = [msgid];
+                var channelTrueArr = [channel, true];
+                var channelFalseArr = [channel, false];
+                var noticeAndNull = [noticeArr, nullArr];
+                var noticeAndMsgid = [noticeArr, msgidArr];
+                var basicLog = `[${channel}] ${msg}`;
+                switch(msgid) {
+                    // This room is now in subscribers-only mode.
+                    case "subs_on":
+                        this.log.info(`[${channel}] This room is now in subscribers-only mode.`);
+                        this.emits(["subscriber", "subscribers", "_promiseSubscribers"], [channelTrueArr, channelTrueArr, nullArr]);
+                        break;
+
+                    // This room is no longer in subscribers-only mode.
+                    case "subs_off":
+                        this.log.info(`[${channel}] This room is no longer in subscribers-only mode.`);
+                        this.emits(["subscriber", "subscribers", "_promiseSubscribersoff"], [channelFalseArr, channelFalseArr, nullArr]);
+                        break;
+
+                    // This room is now in emote-only mode.
+                    case "emote_only_on":
+                        this.log.info(`[${channel}] This room is now in emote-only mode.`);
+                        this.emits(["emoteonly", "_promiseEmoteonly"], [channelTrueArr, nullArr]);
+                        break;
+
+                    // This room is no longer in emote-only mode.
+                    case "emote_only_off":
+                        this.log.info(`[${channel}] This room is no longer in emote-only mode.`);
+                        this.emits(["emoteonly", "_promiseEmoteonlyoff"], [channelFalseArr, nullArr]);
+                        break;
+
+                    // Do not handle slow_on/off here, listen to the ROOMSTATE notice instead as it returns the delay.
+                    case "slow_on":
+                    case "slow_off":
+                        break;
+
+                    // Do not handle followers_on/off here, listen to the ROOMSTATE notice instead as it returns the delay.
+                    case "followers_on_zero":
+                    case "followers_on":
+                    case "followers_off":
+                        break;
+
+                    // This room is now in r9k mode.
+                    case "r9k_on":
+                        this.log.info(`[${channel}] This room is now in r9k mode.`);
+                        this.emits(["r9kmode", "r9kbeta", "_promiseR9kbeta"], [channelTrueArr, channelTrueArr, nullArr]);
+                        break;
+
+                    // This room is no longer in r9k mode.
+                    case "r9k_off":
+                        this.log.info(`[${channel}] This room is no longer in r9k mode.`);
+                        this.emits(["r9kmode", "r9kbeta", "_promiseR9kbetaoff"], [channelFalseArr, channelFalseArr, nullArr]);
+                        break;
+
+                    // The moderators of this room are: [..., ...]
+                    case "room_mods":
+                        var mods = msg.split(": ")[1].toLowerCase()
+                            .split(", ")
+                            .filter(n => n);
+
+                        this.emits(["_promiseMods", "mods"], [[null, mods], [channel, mods]]);
+                        break;
+
+                    // There are no moderators for this room.
+                    case "no_mods":
+                        this.emits(["_promiseMods", "mods"], [[null, []], [channel, []]]);
+                        break;
+
+                    // The VIPs of this channel are: [..., ...]
+                    case "vips_success":
+                        if (msg.endsWith(".")) {
+                            msg = msg.slice(0, -1);
+                        }
+                        var vips = msg.split(": ")[1].toLowerCase()
+                            .split(", ")
+                            .filter(n => n);
+
+                            this.emits(["_promiseVips", "vips"], [[null, vips], [channel, vips]]);
+                            break;
+
+                    // There are no VIPs for this room.
+                    case "no_vips":
+                        this.emits(["_promiseVips", "vips"], [[null, []], [channel, []]]);
+                        break;
+
+                    // Ban command failed..
+                    case "already_banned":
+                    case "bad_ban_admin":
+                    case "bad_ban_broadcaster":
+                    case "bad_ban_global_mod":
+                    case "bad_ban_self":
+                    case "bad_ban_staff":
+                    case "usage_ban":
+                        this.log.info(basicLog);
+                        this.emits(["notice", "_promiseBan"], noticeAndMsgid);
+                        break;
+
+                    // Ban command success..
+                    case "ban_success":
+                        this.log.info(basicLog);
+                        this.emits(["notice", "_promiseBan"], noticeAndNull);
+                        break;
+
+                    // Clear command failed..
+                    case "usage_clear":
+                        this.log.info(basicLog);
+                        this.emits(["notice", "_promiseClear"], noticeAndMsgid);
+                        break;
+
+                    // Mods command failed..
+                    case "usage_mods":
+                        this.log.info(basicLog);
+                        this.emits(["notice", "_promiseMods"], [noticeArr, [msgid, []]]);
+                        break;
+
+                    // Mod command success..
+                    case "mod_success":
+                        this.log.info(basicLog);
+                        this.emits(["notice", "_promiseMod"], noticeAndNull);
+                        break;
+
+                    // VIPs command failed..
+                    case "usage_vips":
+                        this.log.info(basicLog);
+                        this.emits(["notice", "_promiseVips"], [noticeArr, [msgid, []]]);
+                        break;
+
+                    // VIP command failed..
+                    case "usage_vip":
+                    case "bad_vip_grantee_banned":
+                    case "bad_vip_grantee_already_vip":
+                        this.log.info(basicLog);
+                        this.emits(["notice", "_promiseVip"], [noticeArr, [msgid, []]]);
+                        break;
+
+                    // VIP command success..
+                    case "vip_success":
+                        this.log.info(basicLog);
+                        this.emits(["notice", "_promiseVip"], noticeAndNull);
+                        break;
+
+                    // Mod command failed..
+                    case "usage_mod":
+                    case "bad_mod_banned":
+                    case "bad_mod_mod":
+                        this.log.info(basicLog);
+                        this.emits(["notice", "_promiseMod"], noticeAndMsgid);
+                        break;
+
+                    // Unmod command success..
+                    case "unmod_success":
+                        this.log.info(basicLog);
+                        this.emits(["notice", "_promiseUnmod"], noticeAndNull);
+                        break;
+
+                    // Unvip command success...
+                    case "unvip_success":
+                        this.log.info(basicLog);
+                        this.emits(["notice", "_promiseUnvip"], noticeAndNull);
+                        break;
+
+                    // Unmod command failed..
+                    case "usage_unmod":
+                    case "bad_unmod_mod":
+                        this.log.info(basicLog);
+                        this.emits(["notice", "_promiseUnmod"], noticeAndMsgid);
+                        break;
+
+                    // Unvip command failed..
+                    case "usage_unvip":
+                    case "bad_unvip_grantee_not_vip":
+                        this.log.info(basicLog);
+                        this.emits(["notice", "_promiseUnvip"], noticeAndMsgid);
+                        break;
+
+                    // Color command success..
+                    case "color_changed":
+                        this.log.info(basicLog);
+                        this.emits(["notice", "_promiseColor"], noticeAndNull);
+                        break;
+
+                    // Color command failed..
+                    case "usage_color":
+                    case "turbo_only_color":
+                        this.log.info(basicLog);
+                        this.emits(["notice", "_promiseColor"], noticeAndMsgid);
+                        break;
+
+                    // Commercial command success..
+                    case "commercial_success":
+                        this.log.info(basicLog);
+                        this.emits(["notice", "_promiseCommercial"], noticeAndNull);
+                        break;
+
+                    // Commercial command failed..
+                    case "usage_commercial":
+                    case "bad_commercial_error":
+                        this.log.info(basicLog);
+                        this.emits(["notice", "_promiseCommercial"], noticeAndMsgid);
+                        break;
+
+                    // Host command success..
+                    case "hosts_remaining":
+                        this.log.info(basicLog);
+                        var remainingHost = (!isNaN(msg[0]) ? parseInt(msg[0]) : 0);
+                        this.emits(["notice", "_promiseHost"], [noticeArr, [null, ~~remainingHost]]);
+                        break;
+
+                    // Host command failed..
+                    case "bad_host_hosting":
+                    case "bad_host_rate_exceeded":
+                    case "bad_host_error":
+                    case "usage_host":
+                        this.log.info(basicLog);
+                        this.emits(["notice", "_promiseHost"], [noticeArr, [msgid, null]]);
+                        break;
+
+                    // r9kbeta command failed..
+                    case "already_r9k_on":
+                    case "usage_r9k_on":
+                        this.log.info(basicLog);
+                        this.emits(["notice", "_promiseR9kbeta"], noticeAndMsgid);
+                        break;
+
+                    // r9kbetaoff command failed..
+                    case "already_r9k_off":
+                    case "usage_r9k_off":
+                        this.log.info(basicLog);
+                        this.emits(["notice", "_promiseR9kbetaoff"], noticeAndMsgid);
+                        break;
+
+                    // Timeout command success..
+                    case "timeout_success":
+                        this.log.info(basicLog);
+                        this.emits(["notice", "_promiseTimeout"], noticeAndNull);
+                        break;
+
+                    case "delete_message_success":
+                        this.log.info(`[${channel} ${msg}]`);
+                        this.emits(["notice", "_promiseDeletemessage"], noticeAndNull);
+
+                    // Subscribersoff command failed..
+                    case "already_subs_off":
+                    case "usage_subs_off":
+                        this.log.info(basicLog);
+                        this.emits(["notice", "_promiseSubscribersoff"], noticeAndMsgid);
+                        break;
+
+                    // Subscribers command failed..
+                    case "already_subs_on":
+                    case "usage_subs_on":
+                        this.log.info(basicLog);
+                        this.emits(["notice", "_promiseSubscribers"], noticeAndMsgid);
+                        break;
+
+                    // Emoteonlyoff command failed..
+                    case "already_emote_only_off":
+                    case "usage_emote_only_off":
+                        this.log.info(basicLog);
+                        this.emits(["notice", "_promiseEmoteonlyoff"], noticeAndMsgid);
+                        break;
+
+                    // Emoteonly command failed..
+                    case "already_emote_only_on":
+                    case "usage_emote_only_on":
+                        this.log.info(basicLog);
+                        this.emits(["notice", "_promiseEmoteonly"], noticeAndMsgid);
+                        break;
+
+                    // Slow command failed..
+                    case "usage_slow_on":
+                        this.log.info(basicLog);
+                        this.emits(["notice", "_promiseSlow"], noticeAndMsgid);
+                        break;
+
+                    // Slowoff command failed..
+                    case "usage_slow_off":
+                        this.log.info(basicLog);
+                        this.emits(["notice", "_promiseSlowoff"], noticeAndMsgid);
+                        break;
+
+                    // Timeout command failed..
+                    case "usage_timeout":
+                    case "bad_timeout_admin":
+                    case "bad_timeout_broadcaster":
+                    case "bad_timeout_duration":
+                    case "bad_timeout_global_mod":
+                    case "bad_timeout_self":
+                    case "bad_timeout_staff":
+                        this.log.info(basicLog);
+                        this.emits(["notice", "_promiseTimeout"], noticeAndMsgid);
+                        break;
+
+                    // Unban command success..
+                    // Unban can also be used to cancel an active timeout.
+                    case "untimeout_success":
+                    case "unban_success":
+                        this.log.info(basicLog);
+                        this.emits(["notice", "_promiseUnban"], noticeAndNull);
+                        break;
+
+                    // Unban command failed..
+                    case "usage_unban":
+                    case "bad_unban_no_ban":
+                        this.log.info(basicLog);
+                        this.emits(["notice", "_promiseUnban"], noticeAndMsgid);
+                        break;
+
+                    // Delete command failed..
+                    case "usage_delete":
+                    case "bad_delete_message_error":
+                    case "bad_delete_message_broadcaster":
+                    case "bad_delete_message_mod":
+                        this.log.info(basicLog);
+                        this.emits(["notice", "_promiseDeletemessage"], noticeAndMsgid);
+                        break;
+
+                    // Unhost command failed..
+                    case "usage_unhost":
+                    case "not_hosting":
+                        this.log.info(basicLog);
+                        this.emits(["notice", "_promiseUnhost"], noticeAndMsgid);
+                        break;
+
+                    // Whisper command failed..
+                    case "whisper_invalid_login":
+                    case "whisper_invalid_self":
+                    case "whisper_limit_per_min":
+                    case "whisper_limit_per_sec":
+                    case "whisper_restricted_recipient":
+                        this.log.info(basicLog);
+                        this.emits(["notice", "_promiseWhisper"], noticeAndMsgid);
+                        break;
+
+                    // Permission error..
+                    case "no_permission":
+                    case "msg_banned":
+                    case "msg_room_not_found":
+                    // Channel is suspended..
+                    case "msg_channel_suspended":
+                    case "tos_ban":
+                        this.log.info(basicLog);
+                        this.emits([
+                            "notice",
+                            "_promiseBan",
+                            "_promiseClear",
+                            "_promiseUnban",
+                            "_promiseTimeout",
+                            "_promiseDeletemessage",
+                            "_promiseMods",
+                            "_promiseMod",
+                            "_promiseUnmod",
+                            "_promiseVips",
+                            "_promiseVip",
+                            "_promiseUnvip",
+                            "_promiseCommercial",
+                            "_promiseHost",
+                            "_promiseUnhost",
+                            "_promiseJoin",
+                            "_promisePart",
+                            "_promiseR9kbeta",
+                            "_promiseR9kbetaoff",
+                            "_promiseSlow",
+                            "_promiseSlowoff",
+                            "_promiseFollowers",
+                            "_promiseFollowersoff",
+                            "_promiseSubscribers",
+                            "_promiseSubscribersoff",
+                            "_promiseEmoteonly",
+                            "_promiseEmoteonlyoff"
+                        ], noticeAndMsgid);
+                        break;
+
+                    // Unrecognized command..
+                    case "unrecognized_cmd":
+                        this.log.info(basicLog);
+                        this.emit("notice", channel, msgid, msg);
+
+                        if (msg.split(" ").splice(-1)[0] === "/w") {
+                            this.log.warn("You must be connected to a group server to send or receive whispers.");
+                        }
+                        break;
+
+                    // Send the following msg-ids to the notice event listener..
+                    case "cmds_available":
+                    case "host_target_went_offline":
+                    case "msg_censored_broadcaster":
+                    case "msg_duplicate":
+                    case "msg_emoteonly":
+                    case "msg_verified_email":
+                    case "msg_ratelimit":
+                    case "msg_subsonly":
+                    case "msg_timedout":
+                    case "msg_bad_characters":
+                    case "msg_channel_blocked":
+                    case "msg_facebook":
+                    case "msg_followersonly":
+                    case "msg_followersonly_followed":
+                    case "msg_followersonly_zero":
+                    case "msg_rejected":
+                    case "msg_slowmode":
+                    case "msg_suspended":
+                    case "no_help":
+                    case "usage_disconnect":
+                    case "usage_help":
+                    case "usage_me":
+                        this.log.info(basicLog);
+                        this.emit("notice", channel, msgid, msg);
+                        break;
+
+                    // Ignore this because we are already listening to HOSTTARGET..
+                    case "host_on":
+                    case "host_off":
+                        break;
+
+                    default:
+                        if (msg.includes("Login unsuccessful") || msg.includes("Login authentication failed")) {
+                            this.wasCloseCalled = false;
+                            this.reconnect = false;
+                            this.reason = msg;
+                            this.log.error(this.reason);
+                            this.ws.close();
+                        }
+                        else if (msg.includes("Error logging in") || msg.includes("Improperly formatted auth")) {
+                            this.wasCloseCalled = false;
+                            this.reconnect = false;
+                            this.reason = msg;
+                            this.log.error(this.reason);
+                            this.ws.close();
+                        }
+                        else if (msg.includes("Invalid NICK")) {
+                            this.wasCloseCalled = false;
+                            this.reconnect = false;
+                            this.reason = "Invalid NICK.";
+                            this.log.error(this.reason);
+                            this.ws.close();
+                        }
+                        else {
+                            this.log.warn(`Could not parse NOTICE from tmi.twitch.tv:\n${JSON.stringify(message, null, 4)}`);
+                        }
+                        break;
+                }
+                break;
+
+            // Handle subanniversary / resub..
+            case "USERNOTICE":
+                var username = message.tags["display-name"] || message.tags["login"];
+                var plan = message.tags["msg-param-sub-plan"] || "";
+                var planName = _.unescapeIRC(_.get(message.tags["msg-param-sub-plan-name"], "")) || null;
+                var prime = plan.includes("Prime");
+                var methods = { prime, plan, planName };
+                var userstate = message.tags;
+                var streakMonths = ~~(message.tags["msg-param-streak-months"] || 0);
+                var recipient = message.tags["msg-param-recipient-display-name"] || message.tags["msg-param-recipient-user-name"];
+                var giftSubCount = ~~message.tags["msg-param-mass-gift-count"];
+                userstate["message-type"] = msgid;
+
+                switch(msgid) {
+                    // Handle resub
+                    case "resub":
                         this.emits(["resub", "subanniversary"], [
-                            [channel, username, months, msg, userstate, {prime, plan, planName}],
-                            [channel, username, months, msg, userstate, {prime, plan, planName}]
+                            [channel, username, streakMonths, msg, userstate, methods]
                         ]);
-                    }
+                        break;
 
                     // Handle sub
-                    else if (msgid == "sub") {
-                        var username = message.tags["display-name"] || message.tags["login"];
-                        var plan = message.tags["msg-param-sub-plan"];
-                        var planName = _.replaceAll(_.get(message.tags["msg-param-sub-plan-name"], null), {
-                            "\\\\s": " ",
-                            "\\\\:": ";",
-                            "\\\\\\\\": "\\",
-                            "\\r": "\r",
-                            "\\n": "\n"
-                        });
-                        var prime = plan.includes("Prime");
-                        var userstate = null;
+                    case "sub":
+                        this.emit("subscription", channel, username, methods, msg, userstate);
+                        break;
 
-                        if (msg) {
-                            userstate = message.tags;
-                            userstate['message-type'] = 'sub';
-                        }
+                    // Handle gift sub
+                    case "subgift":
+                        this.emit("subgift", channel, username, streakMonths, recipient, methods, userstate);
+                        break;
 
-                        this.emit("subscription", channel, username, {prime, plan, planName}, msg, userstate);
+                    // Handle anonymous gift sub
+                    // Need proof that this event occur
+                    case "anonsubgift":
+                        this.emit("anonsubgift", channel, streakMonths, recipient, methods, userstate);
+                        break;
+
+                    // Handle random gift subs
+                    case "submysterygift":
+                        this.emit("submysterygift", channel, username, giftSubCount, methods, userstate);
+                        break;
+
+                    // Handle anonymous random gift subs
+                    // Need proof that this event occur
+                    case "anonsubmysterygift":
+                        this.emit("anonsubmysterygift", channel, giftSubCount, methods, userstate);
+                        break;
+
+                    // Handle user upgrading from Prime to a normal tier sub
+                    case "primepaidupgrade":
+                        this.emit("primepaidupgrade", channel, username, methods, userstate);
+                        break;
+
+                    // Handle user upgrading from a gifted sub
+                    case "giftpaidupgrade":
+                        var sender = message.tags["msg-param-sender-name"] || message.tags["msg-param-sender-login"];
+                        this.emit("giftpaidupgrade", channel, username, sender, userstate);
+                        break;
+
+                    // Handle user upgrading from an anonymous gifted sub
+                    case "anongiftpaidupgrade":
+                        this.emit("anongiftpaidupgrade", channel, username, userstate);
+                        break;
+
+                    // Handle raid
+                    case "raid":
+                        var username = message.tags["msg-param-displayName"] || message.tags["msg-param-login"];
+                        var viewers = message.tags["msg-param-viewerCount"];
+                        this.emit("raided", channel, username, viewers);
+                        break;
+                }
+
+                break;
+
+            // Channel is now hosting another channel or exited host mode..
+            case "HOSTTARGET":
+                var msgSplit = msg.split(" ");
+                var viewers = ~~msgSplit[1] || 0;
+                // Stopped hosting..
+                if (msgSplit[0] === "-") {
+                    this.log.info(`[${channel}] Exited host mode.`);
+                    this.emits(["unhost", "_promiseUnhost"], [[channel, viewers], [null]]);
+                }
+                // Now hosting..
+                else {
+                    this.log.info(`[${channel}] Now hosting ${msgSplit[0]} for ${viewers} viewer(s).`);
+                    this.emit("hosting", channel, msgSplit[0], viewers);
+                }
+                break;
+
+            // Someone has been timed out or chat has been cleared by a moderator..
+            case "CLEARCHAT":
+                // User has been banned / timed out by a moderator..
+                if (message.params.length > 1) {
+                    // Duration returns null if it's a ban, otherwise it's a timeout..
+                    var duration = _.get(message.tags["ban-duration"], null);
+
+                    if (_.isNull(duration)) {
+                        this.log.info(`[${channel}] ${msg} has been banned.`);
+                        this.emit("ban", channel, msg, null, message.tags);
+                    } else {
+                        this.log.info(`[${channel}] ${msg} has been timed out for ${duration} seconds.`);
+                        this.emit("timeout", channel, msg, null, ~~duration, message.tags);
                     }
-                    break;
+                }
+                // Chat was cleared by a moderator..
+                else {
+                    this.log.info(`[${channel}] Chat was cleared by a moderator.`);
+                    this.emits(["clearchat", "_promiseClear"], [[channel], [null]]);
+                }
+                break;
 
-                // Channel is now hosting another channel or exited host mode..
-                case "HOSTTARGET":
-                    // Stopped hosting..
-                    if (msg.split(" ")[0] === "-") {
-                        this.log.info(`[${channel}] Exited host mode.`);
-                        this.emits(["unhost", "_promiseUnhost"], [[channel, ~~msg.split(" ")[1] || 0], [null]]);
-                    }
-                    // Now hosting..
-                    else {
-                        var viewers = ~~msg.split(" ")[1] || 0;
+            // Someone's message has been deleted
+            case "CLEARMSG":
+                if (message.params.length > 1) {
+                    var username = message.tags["login"];
+                    var deletedMessage = msg;
+                    var userstate = message.tags;
+                    userstate["message-type"] = "messagedeleted";
 
-                        this.log.info(`[${channel}] Now hosting ${msg.split(" ")[0]} for ${viewers} viewer(s).`);
-                        this.emit("hosting", channel, msg.split(" ")[0], viewers);
-                    }
-                    break;
+                    this.log.info(`[${channel}] ${username}'s message has been deleted.`);
+                    this.emit("messagedeleted", channel, username, deletedMessage, userstate);
+                }
+                break;
 
-                // Someone has been timed out or chat has been cleared by a moderator..
-                case "CLEARCHAT":
-                    // User has been banned / timed out by a moderator..
-                    if (message.params.length > 1) {
-                        // Duration returns null if it's a ban, otherwise it's a timeout..
-                        var duration = _.get(message.tags["ban-duration"], null);
+            // Received a reconnection request from the server..
+            case "RECONNECT":
+                this.log.info("Received RECONNECT request from Twitch..");
+                this.log.info(`Disconnecting and reconnecting in ${Math.round(this.reconnectTimer / 1000)} seconds..`);
+                this.disconnect();
+                setTimeout(() => { this.connect(); }, this.reconnectTimer);
+                break;
 
-                        // Escaping values: http://ircv3.net/specs/core/message-tags-3.2.html#escaping-values
-                        var reason = _.replaceAll(_.get(message.tags["ban-reason"], null), {
-                            "\\\\s": " ",
-                            "\\\\:": ";",
-                            "\\\\\\\\": "\\",
-                            "\\r": "\r",
-                            "\\n": "\n"
-                        });
+            // Received when joining a channel and every time you send a PRIVMSG to a channel.
+            case "USERSTATE":
+                message.tags.username = this.username;
 
-                        if (_.isNull(duration)) {
-                            this.log.info(`[${channel}] ${msg} has been banned. Reason: ${reason || "n/a"}`);
-                            this.emit("ban", channel, msg, reason);
-                        } else {
-                            this.log.info(`[${channel}] ${msg} has been timed out for ${duration} seconds. Reason: ${reason || "n/a"}`);
-                            this.emit("timeout", channel, msg, reason, ~~duration);
-                        }
-                    }
-                    // Chat was cleared by a moderator..
-                    else {
-                        this.log.info(`[${channel}] Chat was cleared by a moderator.`);
-                        this.emits(["clearchat", "_promiseClear"], [[channel], [null]]);
-                    }
-                    break;
+                // Add the client to the moderators of this room..
+                if (message.tags["user-type"] === "mod") {
+                    if (!this.moderators[this.lastJoined]) { this.moderators[this.lastJoined] = []; }
+                    if (!this.moderators[this.lastJoined].includes(this.username)) { this.moderators[this.lastJoined].push(this.username); }
+                }
 
-                // Received a reconnection request from the server..
-                case "RECONNECT":
-                    this.log.info("Received RECONNECT request from Twitch..");
-                    this.log.info(`Disconnecting and reconnecting in ${Math.round(this.reconnectTimer / 1000)} seconds..`);
-                    this.disconnect();
-                    setTimeout(() => { this.connect(); }, this.reconnectTimer);
-                    break;
-
-                // Wrong cluster..
-                case "SERVERCHANGE":
-                    //
-                    break;
-
-                // Received when joining a channel and every time you send a PRIVMSG to a channel.
-                case "USERSTATE":
-                    message.tags.username = this.username;
-
-                    // Add the client to the moderators of this room..
-                    if (message.tags["user-type"] === "mod") {
-                        if (!this.moderators[this.lastJoined]) { this.moderators[this.lastJoined] = []; }
-                        if (this.moderators[this.lastJoined].indexOf(this.username) < 0) { this.moderators[this.lastJoined].push(this.username); }
-                    }
-
-                    // Logged in and username doesn't start with justinfan..
-                    if (!_.isJustinfan(this.getUsername()) && !this.userstate[channel]) {
-                        this.userstate[channel] = message.tags;
-                        this.lastJoined = channel;
-                        this.channels.push(channel);
-                        this.log.info(`Joined ${channel}`);
-                        this.emit("join", channel, _.username(this.getUsername()), true);
-                    }
-
-                    // Emote-sets has changed, update it..
-                    // if (message.tags["emote-sets"] !== this.emotes) {
-                    //     this._updateEmoteset(message.tags["emote-sets"]);
-                    // }
-
+                // Logged in and username doesn't start with justinfan..
+                if (!_.isJustinfan(this.getUsername()) && !this.userstate[channel]) {
                     this.userstate[channel] = message.tags;
-                    break;
+                    this.lastJoined = channel;
+                    this.channels.push(channel);
+                    this.log.info(`Joined ${channel}`);
+                    this.emit("join", channel, _.username(this.getUsername()), true);
+                }
 
-                // Describe non-channel-specific state informations..
-                case "GLOBALUSERSTATE":
-                    this.globaluserstate = message.tags;
+								// Emote-sets has changed, update it..
+								// if (message.tags["emote-sets"] !== this.emotes) {
+								//     this._updateEmoteset(message.tags["emote-sets"]);
+								// }
 
-                    // Received emote-sets..
-                    if (typeof message.tags["emote-sets"] !== "undefined") {
-                        // this._updateEmoteset(message.tags["emote-sets"]);
-                    }
-                    break;
+                this.userstate[channel] = message.tags;
+                break;
 
-                // Received when joining a channel and every time one of the chat room settings, like slow mode, change.
-                // The message on join contains all room settings.
-                case "ROOMSTATE":
-                    // We use this notice to know if we successfully joined a channel..
-                    if (_.channel(this.lastJoined) === _.channel(message.params[0])) { this.emit("_promiseJoin", null); }
+            // Describe non-channel-specific state informations..
+            case "GLOBALUSERSTATE":
+                this.globaluserstate = message.tags;
 
-                    // Provide the channel name in the tags before emitting it..
-                    message.tags.channel = _.channel(message.params[0]);
-                    this.emit("roomstate", _.channel(message.params[0]), message.tags);
+								// Received emote-sets..
+								if (typeof message.tags["emote-sets"] !== "undefined") {
+										// this._updateEmoteset(message.tags["emote-sets"]);
+								}
+								break;
 
+            // Received when joining a channel and every time one of the chat room settings, like slow mode, change.
+            // The message on join contains all room settings.
+            case "ROOMSTATE":
+                // We use this notice to know if we successfully joined a channel..
+                if (_.channel(this.lastJoined) === _.channel(message.params[0])) { this.emit("_promiseJoin", null); }
+
+                // Provide the channel name in the tags before emitting it..
+                message.tags.channel = _.channel(message.params[0]);
+                this.emit("roomstate", _.channel(message.params[0]), message.tags);
+
+                if (!message.tags.hasOwnProperty("subs-only")) {
                     // Handle slow mode here instead of the slow_on/off notice..
                     // This room is now in slow mode. You may send messages every slow_duration seconds.
-                    if (message.tags.hasOwnProperty("slow") && !message.tags.hasOwnProperty("subs-only")) {
-                        if (typeof message.tags.slow === "boolean") {
+                    if (message.tags.hasOwnProperty("slow")) {
+                        if (typeof message.tags.slow === "boolean" && !message.tags.slow) {
+                            var disabled = [channel, false, 0];
                             this.log.info(`[${channel}] This room is no longer in slow mode.`);
-                            this.emits(["slow", "slowmode", "_promiseSlowoff"], [[channel, false, 0], [channel, false, 0], [null]]);
+                            this.emits(["slow", "slowmode", "_promiseSlowoff"], [disabled, disabled, [null]]);
                         } else {
+                            var minutes = ~~message.tags.slow;
+                            var enabled = [channel, true, minutes];
                             this.log.info(`[${channel}] This room is now in slow mode.`);
-                            this.emits(["slow", "slowmode", "_promiseSlow"], [[channel, true, ~~message.tags.slow], [channel, true, ~~message.tags.slow], [null]]);
+                            this.emits(["slow", "slowmode", "_promiseSlow"], [enabled, enabled, [null]]);
                         }
                     }
 
@@ -733,166 +841,175 @@ client.prototype.handleMessage = function handleMessage(message) {
                     // duration is in minutes (string)
                     // -1 when /followersoff (string)
                     // false when /followers with no duration (boolean)
-                    if (message.tags.hasOwnProperty("followers-only") && !message.tags.hasOwnProperty("subs-only")) {
+                    if (message.tags.hasOwnProperty("followers-only")) {
                         if (message.tags["followers-only"] === "-1") {
+                            var disabled = [channel, false, 0];
                             this.log.info(`[${channel}] This room is no longer in followers-only mode.`);
-                            this.emits(["followersonly", "followersmode", "_promiseFollowersoff"], [[channel, false, 0], [channel, false, 0], [null]]);
+                            this.emits(["followersonly", "followersmode", "_promiseFollowersoff"], [disabled, disabled, [null]]);
                         } else {
                             var minutes = ~~message.tags["followers-only"];
+                            var enabled = [channel, true, minutes];
                             this.log.info(`[${channel}] This room is now in follower-only mode.`);
-                            this.emits(["followersonly", "followersmode", "_promiseFollowers"], [[channel, true, minutes], [channel, true, minutes], [null]]);
+                            this.emits(["followersonly", "followersmode", "_promiseFollowers"], [disabled, disabled, [null]]);
                         }
                     }
-                    break;
+                }
+                break;
 
-                default:
-                    this.log.warn(`Could not parse message from tmi.twitch.tv:\n${JSON.stringify(message, null, 4)}`);
-                    break;
-            }
+            // Wrong cluster..
+            case "SERVERCHANGE":
+                break;
+
+            default:
+                this.log.warn(`Could not parse message from tmi.twitch.tv:\n${JSON.stringify(message, null, 4)}`);
+                break;
         }
+    }
 
-        // Messages from jtv..
-        else if (message.prefix === "jtv") {
-            switch(message.command) {
-                case "MODE":
-                    if (msg === "+o") {
-                        // Add username to the moderators..
-                        if (!this.moderators[channel]) { this.moderators[channel] = []; }
-                        if (this.moderators[channel].indexOf(message.params[2]) < 0) { this.moderators[channel].push(message.params[2]); }
+    // Messages from jtv..
+    else if (message.prefix === "jtv") {
+        switch(message.command) {
+            case "MODE":
+                if (msg === "+o") {
+                    // Add username to the moderators..
+                    if (!this.moderators[channel]) { this.moderators[channel] = []; }
+                    if (!this.moderators[channel].includes(message.params[2])) { this.moderators[channel].push(message.params[2]); }
 
-                        this.emit("mod", channel, message.params[2]);
-                    }
-                    else if (msg === "-o") {
-                        // Remove username from the moderators..
-                        if (!this.moderators[channel]) { this.moderators[channel] = []; }
-                        this.moderators[channel].filter((value) => { return value != message.params[2]; });
+                    this.emit("mod", channel, message.params[2]);
+                }
+                else if (msg === "-o") {
+                    // Remove username from the moderators..
+                    if (!this.moderators[channel]) { this.moderators[channel] = []; }
+                    this.moderators[channel].filter((value) => { return value != message.params[2]; });
 
-                        this.emit("unmod", channel, message.params[2]);
-                    }
-                    break;
+                    this.emit("unmod", channel, message.params[2]);
+                }
+                break;
 
-                default:
-                    this.log.warn(`Could not parse message from jtv:\n${JSON.stringify(message, null, 4)}`);
-                    break;
-            }
+            default:
+                this.log.warn(`Could not parse message from jtv:\n${JSON.stringify(message, null, 4)}`);
+                break;
         }
+    }
 
-        // Anything else..
-        else {
-            switch(message.command) {
-                case "353":
-                    this.emit("names", message.params[2], message.params[3].split(" "));
-                    break;
+    // Anything else..
+    else {
+        switch(message.command) {
+            case "353":
+                this.emit("names", message.params[2], message.params[3].split(" "));
+                break;
 
-                case "366":
-                    break;
+            case "366":
+                break;
 
-                // Someone has joined the channel..
-                case "JOIN":
-                    // Joined a channel as a justinfan (anonymous) user..
-                    if (_.isJustinfan(this.getUsername()) && this.username === message.prefix.split("!")[0]) {
-                        this.lastJoined = channel;
-                        this.channels.push(channel);
-                        this.log.info(`Joined ${channel}`);
-                        this.emit("join", channel, message.prefix.split("!")[0], true);
+            // Someone has joined the channel..
+            case "JOIN":
+                var nick = message.prefix.split("!")[0];
+                // Joined a channel as a justinfan (anonymous) user..
+                if (_.isJustinfan(this.getUsername()) && this.username === nick) {
+                    this.lastJoined = channel;
+                    this.channels.push(channel);
+                    this.log.info(`Joined ${channel}`);
+                    this.emit("join", channel, nick, true);
+                }
+
+                // Someone else joined the channel, just emit the join event..
+                if (this.username !== nick) {
+                    this.emit("join", channel, nick, false);
+                }
+                break;
+
+            // Someone has left the channel..
+            case "PART":
+                var isSelf = false;
+                var nick = message.prefix.split("!")[0];
+                // Client left a channel..
+                if (this.username === nick) {
+                    isSelf = true;
+                    if (this.userstate[channel]) { delete this.userstate[channel]; }
+
+                    var index = this.channels.indexOf(channel);
+                    if (index !== -1) { this.channels.splice(index, 1); }
+
+                    var index = this.opts.channels.indexOf(channel);
+                    if (index !== -1) { this.opts.channels.splice(index, 1); }
+
+                    this.log.info(`Left ${channel}`);
+                    this.emit("_promisePart", null);
+                }
+
+                // Client or someone else left the channel, emit the part event..
+                this.emit("part", channel, nick, isSelf);
+                break;
+
+            // Received a whisper..
+            case "WHISPER":
+                var nick = message.prefix.split("!")[0];
+                this.log.info(`[WHISPER] <${nick}>: ${msg}`);
+
+                // Update the tags to provide the username..
+                if (!message.tags.hasOwnProperty("username")) { message.tags.username = nick; }
+                message.tags["message-type"] = "whisper";
+
+                var from = _.channel(message.tags.username);
+                // Emit for both, whisper and message..
+                this.emits(["whisper", "message"], [
+                    [from, message.tags, msg, false]
+                ]);
+                break;
+
+            case "PRIVMSG":
+                // Add username (lowercase) to the tags..
+                message.tags.username = message.prefix.split("!")[0];
+
+                // Message from JTV..
+                if (message.tags.username === "jtv") {
+                    var name = _.username(msg.split(" ")[0]);
+                    var autohost = msg.includes("auto");
+                    // Someone is hosting the channel and the message contains how many viewers..
+                    if (msg.includes("hosting you for")) {
+                        var count = _.extractNumber(msg);
+
+                        this.emit("hosted", channel, name, count, autohost);
                     }
 
-                    // Someone else joined the channel, just emit the join event..
-                    if (this.username !== message.prefix.split("!")[0]) {
-                        this.emit("join", channel, message.prefix.split("!")[0], false);
+                    // Some is hosting the channel, but no viewer(s) count provided in the message..
+                    else if (msg.includes("hosting you")) {
+                        this.emit("hosted", channel, name, 0, autohost);
                     }
-                    break;
+                }
 
-                // Someone has left the channel..
-                case "PART":
-                    var isSelf = false;
-                    // Client a channel..
-                    if (this.username === message.prefix.split("!")[0]) {
-                        isSelf = true;
-                        if (this.userstate[channel]) { delete this.userstate[channel]; }
-
-                        var index = this.channels.indexOf(channel);
-                        if (index !== -1) { this.channels.splice(index, 1); }
-
-                        var index = this.opts.channels.indexOf(channel);
-                        if (index !== -1) { this.opts.channels.splice(index, 1); }
-
-                        this.log.info(`Left ${channel}`);
-                        this.emit("_promisePart", null);
+                else {
+                    // Message is an action (/me <message>)..
+                    var actionMessage = _.actionMessage(msg);
+                    if (actionMessage) {
+                        message.tags["message-type"] = "action";
+                        this.log.info(`[${channel}] *<${message.tags.username}>: ${actionMessage[1]}`);
+                        this.emits(["action", "message"], [
+                            [channel, message.tags, actionMessage[1], false]
+                        ]);
                     }
-
-                    // Client or someone else left the channel, emit the part event..
-                    this.emit("part", channel, message.prefix.split("!")[0], isSelf);
-                    break;
-
-                // Received a whisper..
-                case "WHISPER":
-                    this.log.info(`[WHISPER] <${message.prefix.split("!")[0]}>: ${msg}`);
-
-                    // Update the tags to provide the username..
-                    if (!message.tags.hasOwnProperty("username")) { message.tags.username = message.prefix.split("!")[0]; }
-                    message.tags["message-type"] = "whisper";
-
-                    var from = _.channel(message.tags.username);
-                    // Emit for both, whisper and message..
-                    this.emits(["whisper", "message"], [
-                        [from, message.tags, msg, false],
-                        [from, message.tags, msg, false]
-                    ]);
-                    break;
-
-                case "PRIVMSG":
-                    // Add username (lowercase) to the tags..
-                    message.tags.username = message.prefix.split("!")[0];
-
-                    // Message from JTV..
-                    if (message.tags.username === "jtv") {
-                        // Someone is hosting the channel and the message contains how many viewers..
-                        if (msg.includes("hosting you for")) {
-                            var count = _.extractNumber(msg);
-
-                            this.emit("hosted", channel, _.username(msg.split(" ")[0]), count, msg.includes("auto"));
-                        }
-
-                        // Some is hosting the channel, but no viewer(s) count provided in the message..
-                        else if (msg.includes("hosting you")) {
-                            this.emit("hosted", channel, _.username(msg.split(" ")[0]), 0, msg.includes("auto"));
-                        }
-                    }
-
                     else {
-                        // Message is an action (/me <message>)..
-                        if (msg.match(/^\u0001ACTION ([^\u0001]+)\u0001$/)) {
-                            message.tags["message-type"] = "action";
-                            this.log.info(`[${channel}] *<${message.tags.username}>: ${msg.match(/^\u0001ACTION ([^\u0001]+)\u0001$/)[1]}`);
-                            this.emits(["action", "message"], [
-                                [channel, message.tags, msg.match(/^\u0001ACTION ([^\u0001]+)\u0001$/)[1], false],
-                                [channel, message.tags, msg.match(/^\u0001ACTION ([^\u0001]+)\u0001$/)[1], false]
+                        if (message.tags.hasOwnProperty("bits")) {
+                            this.emit("cheer", channel, message.tags, msg);
+                        }
+
+                        // Message is a regular chat message..
+                        else {
+                            message.tags["message-type"] = "chat";
+                            this.log.info(`[${channel}] <${message.tags.username}>: ${msg}`);
+
+                            this.emits(["chat", "message"], [
+                                [channel, message.tags, msg, false]
                             ]);
                         }
-                        else {
-                            if (message.tags.hasOwnProperty("bits")) {
-                                this.emit("cheer", channel, message.tags, msg);
-                            }
-
-                            // Message is a regular chat message..
-                            else {
-                                message.tags["message-type"] = "chat";
-                                this.log.info(`[${channel}] <${message.tags.username}>: ${msg}`);
-
-                                this.emits(["chat", "message"], [
-                                    [channel, message.tags, msg, false],
-                                    [channel, message.tags, msg, false]
-                                ]);
-                            }
-                        }
                     }
-                    break;
+                }
+                break;
 
-                default:
-                    this.log.warn(`Could not parse message:\n${JSON.stringify(message, null, 4)}`);
-                    break;
-            }
+            default:
+                this.log.warn(`Could not parse message:\n${JSON.stringify(message, null, 4)}`);
+                break;
         }
     }
 };
@@ -950,7 +1067,6 @@ client.prototype._onOpen = function _onOpen() {
         this.ws.send("CAP REQ :twitch.tv/tags twitch.tv/commands twitch.tv/membership");
         this.ws.send(`PASS ${this.password}`);
         this.ws.send(`NICK ${this.username}`);
-        this.ws.send(`USER ${this.username} 8 * :${this.username}`);
     }
 };
 
@@ -975,7 +1091,7 @@ client.prototype._onError = function _onError() {
 
     this.reason = !_.isNull(this.ws) ? "Unable to connect." : "Connection closed.";
 
-    this.emits(["_promiseConnect", "disconnected"], [[this.reason], [this.reason]]);
+    this.emits(["_promiseConnect", "disconnected"], [[this.reason]]);
 
     // Reconnect to server..
     if (this.reconnect && this.reconnections === this.maxReconnectAttempts) {
@@ -1012,7 +1128,7 @@ client.prototype._onClose = function _onClose() {
     }
     // Got disconnected from server..
     else {
-        this.emits(["_promiseConnect", "disconnected"], [[this.reason], [this.reason]]);
+        this.emits(["_promiseConnect", "disconnected"], [[this.reason]]);
 
         // Reconnect to server..
         if (this.reconnect && this.reconnections === this.maxReconnectAttempts) {
@@ -1047,8 +1163,9 @@ client.prototype._sendCommand = function _sendCommand(delay, channel, command, f
         if (!_.isNull(this.ws) && this.ws.readyState !== 2 && this.ws.readyState !== 3) {
             // Executing a command on a channel..
             if (!_.isNull(channel)) {
-                this.log.info(`[${_.channel(channel)}] Executing command: ${command}`);
-                this.ws.send(`PRIVMSG ${_.channel(channel)} :${command}`);
+                var chan = _.channel(channel);
+                this.log.info(`[${chan}] Executing command: ${command}`);
+                this.ws.send(`PRIVMSG ${chan} :${command}`);
             }
 
             // Executing a raw command..
@@ -1070,7 +1187,8 @@ client.prototype._sendMessage = function _sendMessage(delay, channel, message, f
     return new Promise((resolve, reject) => {
         // Make sure the socket is opened and not logged in as a justinfan user..
         if (!_.isNull(this.ws) && this.ws.readyState !== 2 && this.ws.readyState !== 3 && !_.isJustinfan(this.getUsername())) {
-            if (!this.userstate[_.channel(channel)]) { this.userstate[_.channel(channel)] = {} }
+            var chan = _.channel(channel);
+            if (!this.userstate[chan]) { this.userstate[chan] = {} }
 
             // Split long lines otherwise they will be eaten by the server..
             if (message.length >= 500) {
@@ -1082,7 +1200,7 @@ client.prototype._sendMessage = function _sendMessage(delay, channel, message, f
                 }, 350);
             }
 
-            this.ws.send(`PRIVMSG ${_.channel(channel)} :${message}`);
+            this.ws.send(`PRIVMSG ${chan} :${message}`);
 
             var emotes = {};
 
@@ -1095,25 +1213,24 @@ client.prototype._sendMessage = function _sendMessage(delay, channel, message, f
             });
 
             // Merge userstate with parsed emotes..
-            var userstate = _.merge(this.userstate[_.channel(channel)], parse.emotes({ emotes: parse.transformEmotes(emotes) || null }));
+            var userstate = _.merge(this.userstate[chan], parse.emotes({ emotes: parse.transformEmotes(emotes) || null }));
 
             // Message is an action (/me <message>)..
-            if (message.match(/^\u0001ACTION ([^\u0001]+)\u0001$/)) {
+            var actionMessage = _.actionMessage(message);
+            if (actionMessage) {
                 userstate["message-type"] = "action";
-                this.log.info(`[${_.channel(channel)}] *<${this.getUsername()}>: ${message.match(/^\u0001ACTION ([^\u0001]+)\u0001$/)[1]}`);
+                this.log.info(`[${chan}] *<${this.getUsername()}>: ${actionMessage[1]}`);
                 this.emits(["action", "message"], [
-                    [_.channel(channel), userstate, message.match(/^\u0001ACTION ([^\u0001]+)\u0001$/)[1], true],
-                    [_.channel(channel), userstate, message.match(/^\u0001ACTION ([^\u0001]+)\u0001$/)[1], true]
+                    [chan, userstate, actionMessage[1], true]
                 ]);
             }
 
             // Message is a regular chat message..
             else {
                 userstate["message-type"] = "chat";
-                this.log.info(`[${_.channel(channel)}] <${this.getUsername()}>: ${message}`);
+                this.log.info(`[${chan}] <${this.getUsername()}>: ${message}`);
                 this.emits(["chat", "message"], [
-                    [_.channel(channel), userstate, message, true],
-                    [_.channel(channel), userstate, message, true]
+                    [chan, userstate, message, true]
                 ]);
             }
             fn(resolve, reject);
@@ -1159,11 +1276,9 @@ client.prototype.getChannels = function getChannels() {
 
 // Check if username is a moderator on a channel..
 client.prototype.isMod = function isMod(channel, username) {
-    if (!this.moderators[_.channel(channel)]) { this.moderators[_.channel(channel)] = []; }
-    if (this.moderators[_.channel(channel)].indexOf(_.username(username)) >= 0) {
-        return true;
-    }
-    return false;
+    var chan = _.channel(channel);
+    if (!this.moderators[chan]) { this.moderators[chan] = []; }
+    return this.moderators[chan].includes(_.username(username));
 };
 
 // Get readyState..
@@ -1187,140 +1302,6 @@ client.prototype.disconnect = function disconnect() {
     });
 };
 
-client.prototype.utils = {
-    levenshtein: function levenshtein(s1, s2, caseSensitive) {
-        var cost_ins = 1;
-        var cost_rep = 1;
-        var cost_del = 1;
-        caseSensitive = _.get(caseSensitive, false);
-
-        if (!caseSensitive) {
-            s1 = s1.toLowerCase();
-            s2 = s2.toLowerCase();
-        }
-
-        if (s1 == s2) { return 0; }
-
-        var l1 = s1.length;
-        var l2 = s2.length;
-
-        if (l1 === 0) { return l2 * cost_ins; }
-        if (l2 === 0) { return l1 * cost_del; }
-
-        var split = false;
-        try {
-            split = !("0")[0];
-        } catch (e) {
-            split = true;
-        }
-        if (split) {
-            s1 = s1.split("");
-            s2 = s2.split("");
-        }
-
-        var p1 = new Array(l2 + 1);
-        var p2 = new Array(l2 + 1);
-
-        var i1, i2, c0, c1, c2, tmp;
-
-        for (i2 = 0; i2 <= l2; i2++) {
-            p1[i2] = i2 * cost_ins;
-        }
-
-        for (i1 = 0; i1 < l1; i1++) {
-            p2[0] = p1[0] + cost_del;
-
-            for (i2 = 0; i2 < l2; i2++) {
-                c0 = p1[i2] + ((s1[i1] == s2[i2]) ? 0 : cost_rep);
-                c1 = p1[i2 + 1] + cost_del;
-
-                if (c1 < c0) {
-                    c0 = c1;
-                }
-
-                c2 = p2[i2] + cost_ins;
-
-                if (c2 < c0) {
-                    c0 = c2;
-                }
-
-                p2[i2 + 1] = c0;
-            }
-
-            tmp = p1;
-            p1 = p2;
-            p2 = tmp;
-        }
-
-        c0 = p1[l2];
-
-        return c0;
-    },
-    raffle: {
-        init: function init(channel) {
-            if (!this.raffleChannels) { this.raffleChannels = {}; }
-            if (!this.raffleChannels[_.channel(channel)]) { this.raffleChannels[_.channel(channel)] = []; }
-        },
-        enter: function enter(channel, username) {
-            this.init(channel);
-            this.raffleChannels[_.channel(channel)].push(username.toLowerCase());
-        },
-        leave: function leave(channel, username) {
-            this.init(channel);
-            var index = this.raffleChannels[_.channel(channel)].indexOf(_.username(username));
-            if (index >= 0) {
-                this.raffleChannels[_.channel(channel)].splice(index, 1);
-                return true;
-            }
-            return false;
-        },
-        pick: function pick(channel) {
-            this.init(channel);
-            var count = this.raffleChannels[_.channel(channel)].length;
-            if (count >= 1) {
-                return this.raffleChannels[_.channel(channel)][Math.floor((Math.random() * count))];
-            }
-            return null;
-        },
-        reset: function reset(channel) {
-            this.init(channel);
-            this.raffleChannels[_.channel(channel)] = [];
-        },
-        count: function count(channel) {
-            this.init(channel);
-            if (this.raffleChannels[_.channel(channel)]) {
-                return this.raffleChannels[_.channel(channel)].length;
-            }
-            return 0;
-        },
-        isParticipating: function isParticipating(channel, username) {
-            this.init(channel);
-            if (this.raffleChannels[_.channel(channel)].indexOf(_.username(username)) >= 0) {
-                return true;
-            }
-            return false;
-        }
-    },
-    symbols: function symbols(line) {
-        var count = 0;
-        for (var i = 0; i < line.length; i++) {
-            var charCode = line.substring(i, i+1).charCodeAt(0);
-            if ((charCode <= 30 || charCode >= 127) || charCode === 65533) {
-                count++;
-            }
-        }
-        return Math.ceil((count / line.length) * 100) / 100;
-    },
-    uppercase: function uppercase(line) {
-        var chars = line.length;
-        var u_let = line.match(/[A-Z]/g);
-        if (!_.isNull(u_let)) {
-            return (u_let.length / chars);
-        }
-        return 0;
-    }
-};
-
 // Expose everything, for browser and Node..
 if (typeof module !== "undefined" && module.exports) {
     module.exports = client;
@@ -1328,4 +1309,5 @@ if (typeof module !== "undefined" && module.exports) {
 if (typeof window !== "undefined") {
     window.tmi = {};
     window.tmi.client = client;
+    window.tmi.Client = client;
 }

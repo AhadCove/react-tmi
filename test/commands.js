@@ -1,7 +1,15 @@
 var WebSocketServer = require('ws').Server;
 var tmi = require('../src/index.js');
 
-var noop = function () { };
+var noop = function() {};
+var catchConnectError = err => {
+    if(err !== 'Connection closed.') {
+        console.error(err);
+    }
+};
+
+var no_permission = '@msg-id=no_permission :tmi.twitch.tv NOTICE #local7000 :You don\'t have permission.';
+var msg_channel_suspended = '@msg-id=msg_channel_suspended :tmi.twitch.tv NOTICE #local7000 :This channel has been suspended.'
 
 var tests = [{
     command: 'ban',
@@ -25,8 +33,9 @@ var tests = [{
     serverTest: '/clear',
     serverCommand: ':tmi.twitch.tv CLEARCHAT',
     errorCommands: [
-        '@msg-id=no_permission :tmi.twitch.tv NOTICE #local7000 : You don\'t have permission.',
-        '@msg-id=usage_clear :tmi.twitch.tv NOTICE #local7000 : Usage: "/clear" - Clear chat history for all users in this room.'
+        '@msg-id=usage_clear :tmi.twitch.tv NOTICE #local7000 :Usage: "/clear" - Clear chat history for all users in this room.',
+        no_permission,
+        msg_channel_suspended
     ]
 }, {
     command: 'color',
@@ -35,8 +44,8 @@ var tests = [{
     serverTest: '#c0ffee',
     serverCommand: '@msg-id=color_changed :tmi.twitch.tv NOTICE #local7000 :#c0ffee',
     errorCommands: [
-        '@msg-id=turbo_only_color :tmi.twitch.tv NOTICE #local7000 : Turbo colors are not available.',
-        '@msg-id=usage_color :tmi.twitch.tv NOTICE #local7000 : Usage: "/color " - Change your username color.'
+        '@msg-id=turbo_only_color :tmi.twitch.tv NOTICE #local7000 :Turbo colors are not available.',
+        '@msg-id=usage_color :tmi.twitch.tv NOTICE #local7000 :Usage: "/color " - Change your username color.'
     ]
 }, {
     command: 'color',
@@ -51,9 +60,10 @@ var tests = [{
     serverTest: '/commercial',
     serverCommand: '@msg-id=commercial_success :tmi.twitch.tv NOTICE #local7000 :30',
     errorCommands: [
-        '@msg-id=bad_commercial_error :tmi.twitch.tv NOTICE #local7000 : Failed to start commercial.',
-        '@msg-id=no_permission :tmi.twitch.tv NOTICE #local7000 : You don\'t have permission.',
-        '@msg-id=usage_commercial :tmi.twitch.tv NOTICE #local7000 : Usage: "/commercial [length]"'
+        '@msg-id=bad_commercial_error :tmi.twitch.tv NOTICE #local7000 :Failed to start commercial.',
+        '@msg-id=usage_commercial :tmi.twitch.tv NOTICE #local7000 :Usage: "/commercial [length]"',
+        no_permission,
+        msg_channel_suspended
     ]
 }, {
     command: 'commercial',
@@ -68,9 +78,10 @@ var tests = [{
     serverTest: '/emoteonly',
     serverCommand: '@msg-id=emote_only_on :tmi.twitch.tv NOTICE #local7000',
     errorCommands: [
-        '@msg-id=already_emote_only_on :tmi.twitch.tv NOTICE #local7000 : This room is already in emote-only mode.',
-        '@msg-id=no_permission :tmi.twitch.tv NOTICE #local7000 : You don\'t have permission.',
-        '@msg-id=usage_emote_only_on :tmi.twitch.tv NOTICE #local7000 : Usage: "/emoteonly"'
+        '@msg-id=already_emote_only_on :tmi.twitch.tv NOTICE #local7000 :This room is already in emote-only mode.',
+        '@msg-id=usage_emote_only_on :tmi.twitch.tv NOTICE #local7000 :Usage: "/emoteonly"',
+        no_permission,
+        msg_channel_suspended
     ]
 }, {
     command: 'emoteonlyoff',
@@ -79,9 +90,10 @@ var tests = [{
     serverTest: '/emoteonlyoff',
     serverCommand: '@msg-id=emote_only_off :tmi.twitch.tv NOTICE #local7000',
     errorCommands: [
-        '@msg-id=already_emote_only_off :tmi.twitch.tv NOTICE #local7000 : This room is not in emote-only mode.',
-        '@msg-id=no_permission :tmi.twitch.tv NOTICE #local7000 : You don\'t have permission.',
-        '@msg-id=usage_emote_only_off :tmi.twitch.tv NOTICE #local7000 : Usage: "/emoteonlyoff"'
+        '@msg-id=already_emote_only_off :tmi.twitch.tv NOTICE #local7000 :This room is not in emote-only mode.',
+        '@msg-id=usage_emote_only_off :tmi.twitch.tv NOTICE #local7000 :Usage: "/emoteonlyoff"',
+        no_permission,
+        msg_channel_suspended
     ]
 }, {
     command: 'host',
@@ -91,10 +103,11 @@ var tests = [{
     serverCommand: '@msg-id=hosts_remaining :tmi.twitch.tv NOTICE #local7000 :5',
     errorCommands: [
         '@msg-id=bad_host_error :tmi.twitch.tv NOTICE #local7000 :There was a problem hosting channel_to_host. Please try again in a minute.',
-        '@msg-id=bad_host_hosting :tmi.twitch.tv NOTICE #local7000 : This channel is already hosting that channel.',
-        '@msg-id=bad_host_rate_exceeded :tmi.twitch.tv NOTICE #local7000 : Host target cannot be changed more than 3 times every half hour.',
-        '@msg-id=no_permission :tmi.twitch.tv NOTICE #local7000 : You don\'t have permission.',
-        '@msg-id=usage_host :tmi.twitch.tv NOTICE #local7000 : Usage: "/host " - Host another channel.'
+        '@msg-id=bad_host_hosting :tmi.twitch.tv NOTICE #local7000 :This channel is already hosting that channel.',
+        '@msg-id=bad_host_rate_exceeded :tmi.twitch.tv NOTICE #local7000 :Host target cannot be changed more than 3 times every half hour.',
+        '@msg-id=usage_host :tmi.twitch.tv NOTICE #local7000 :Usage: "/host " - Host another channel.',
+        no_permission,
+        // msg_channel_suspended
     ]
 }, {
     command: 'join',
@@ -120,10 +133,11 @@ var tests = [{
     serverTest: '/mod',
     serverCommand: '@msg-id=mod_success :tmi.twitch.tv NOTICE #local7000 :schmoopiie',
     errorCommands: [
-        '@msg-id=bad_mod_banned :tmi.twitch.tv NOTICE #local7000 : That user is banned in this room.',
-        '@msg-id=bad_mod_mod :tmi.twitch.tv NOTICE #local7000 : They are already a moderator of this room.',
-        '@msg-id=no_permission :tmi.twitch.tv NOTICE #local7000 : You don\'t have permission.',
-        '@msg-id=usage_mod :tmi.twitch.tv NOTICE #local7000 : Usage: "/mod " - Grant mod status to a user.'
+        '@msg-id=bad_mod_banned :tmi.twitch.tv NOTICE #local7000 :That user is banned in this room.',
+        '@msg-id=bad_mod_mod :tmi.twitch.tv NOTICE #local7000 :They are already a moderator of this room.',
+        '@msg-id=usage_mod :tmi.twitch.tv NOTICE #local7000 :Usage: "/mod " - Grant mod status to a user.',
+        no_permission,
+        msg_channel_suspended
     ]
 }, {
     command: 'mods',
@@ -132,14 +146,14 @@ var tests = [{
     serverTest: '/mods',
     serverCommand: '@msg-id=room_mods :tmi.twitch.tv NOTICE #local7000 :The moderators of this room are: barry, baz',
     errorCommands: [
-        '@msg-id=usage_mods :tmi.twitch.tv NOTICE #local7000 : Usage: "/mods"'
+        '@msg-id=usage_mods :tmi.twitch.tv NOTICE #local7000 :Usage: "/mods"'
     ]
 }, {
     command: 'mods',
     inputParams: ['#local7000'],
     returnedParams: [],
     serverTest: '/mods',
-    serverCommand: '@msg-id=no_mods :tmi.twitch.tv NOTICE #local7000'
+    serverCommand: '@msg-id=no_mods :tmi.twitch.tv NOTICE #local7000 :There are no moderators of this channel.'
 }, {
     command: 'part',
     inputParams: ['#local7000'],
@@ -157,9 +171,10 @@ var tests = [{
     serverTest: '/r9kbeta',
     serverCommand: '@msg-id=r9k_on :tmi.twitch.tv NOTICE #local7000',
     errorCommands: [
-        '@msg-id=already_r9k_on :tmi.twitch.tv NOTICE #local7000 : r9k is already on.',
-        '@msg-id=no_permission :tmi.twitch.tv NOTICE #local7000 : You don\'t have permission.',
-        '@msg-id=usage_r9k_on :tmi.twitch.tv NOTICE #local7000 : Usage: "/r9kbeta" - Enables r9k mode'
+        '@msg-id=already_r9k_on :tmi.twitch.tv NOTICE #local7000 :r9k is already on.',
+        '@msg-id=usage_r9k_on :tmi.twitch.tv NOTICE #local7000 :Usage: "/r9kbeta" - Enables r9k mode',
+        no_permission,
+        msg_channel_suspended
     ]
 }, {
     command: 'r9kbetaoff',
@@ -168,9 +183,10 @@ var tests = [{
     serverTest: '/r9kbetaoff',
     serverCommand: '@msg-id=r9k_off :tmi.twitch.tv NOTICE #local7000',
     errorCommands: [
-        '@msg-id=already_r9k_off :tmi.twitch.tv NOTICE #local7000 : r9k is already off.',
-        '@msg-id=no_permission :tmi.twitch.tv NOTICE #local7000 : You don\'t have permission.',
-        '@msg-id=usage_r9k_off :tmi.twitch.tv NOTICE #local7000 : Usage: "/r9kbetaoff" - Disables r9k mode'
+        '@msg-id=already_r9k_off :tmi.twitch.tv NOTICE #local7000 :r9k is already off.',
+        '@msg-id=usage_r9k_off :tmi.twitch.tv NOTICE #local7000 :Usage: "/r9kbetaoff" - Disables r9k mode',
+        no_permission,
+        msg_channel_suspended
     ]
 }, {
     command: 'r9kmode',
@@ -179,9 +195,10 @@ var tests = [{
     serverTest: '/r9kbeta',
     serverCommand: '@msg-id=r9k_on :tmi.twitch.tv NOTICE #local7000',
     errorCommands: [
-        '@msg-id=already_r9k_on :tmi.twitch.tv NOTICE #local7000 : r9k is already on.',
-        '@msg-id=no_permission :tmi.twitch.tv NOTICE #local7000 : You don\'t have permission.',
-        '@msg-id=usage_r9k_on :tmi.twitch.tv NOTICE #local7000 : Usage: "/r9kbeta" - Enables r9k mode'
+        '@msg-id=already_r9k_on :tmi.twitch.tv NOTICE #local7000 :r9k is already on.',
+        '@msg-id=usage_r9k_on :tmi.twitch.tv NOTICE #local7000 :Usage: "/r9kbeta" - Enables r9k mode',
+        no_permission,
+        msg_channel_suspended
     ]
 }, {
     command: 'r9kmodeoff',
@@ -190,9 +207,10 @@ var tests = [{
     serverTest: '/r9kbetaoff',
     serverCommand: '@msg-id=r9k_off :tmi.twitch.tv NOTICE #local7000',
     errorCommands: [
-        '@msg-id=already_r9k_off :tmi.twitch.tv NOTICE #local7000 : r9k is already off.',
-        '@msg-id=no_permission :tmi.twitch.tv NOTICE #local7000 : You don\'t have permission.',
-        '@msg-id=usage_r9k_off :tmi.twitch.tv NOTICE #local7000 : Usage: "/r9kbetaoff" - Disables r9k mode'
+        '@msg-id=already_r9k_off :tmi.twitch.tv NOTICE #local7000 :r9k is already off.',
+        '@msg-id=usage_r9k_off :tmi.twitch.tv NOTICE #local7000 :Usage: "/r9kbetaoff" - Disables r9k mode',
+        no_permission,
+        msg_channel_suspended
     ]
 }, {
     command: 'raw',
@@ -207,8 +225,9 @@ var tests = [{
     serverTest: '/slow',
     serverCommand: '@slow=150 :tmi.twitch.tv ROOMSTATE',
     errorCommands: [
-        '@msg-id=no_permission :tmi.twitch.tv NOTICE #local7000 : You don\'t have permission.',
-        '@msg-id=usage_slow_on :tmi.twitch.tv NOTICE #local7000 : Usage: "/slow [duration]"'
+        '@msg-id=usage_slow_on :tmi.twitch.tv NOTICE #local7000 :Usage: "/slow [duration]"',
+        no_permission,
+        msg_channel_suspended
     ]
 }, {
     command: 'slow',
@@ -223,8 +242,9 @@ var tests = [{
     serverTest: '/slowoff',
     serverCommand: '@slow=0 :tmi.twitch.tv ROOMSTATE',
     errorCommands: [
-        '@msg-id=no_permission :tmi.twitch.tv NOTICE #local7000 : You don\'t have permission.',
-        '@msg-id=usage_slow_off :tmi.twitch.tv NOTICE #local7000 : Usage: "/slowoff"'
+        '@msg-id=usage_slow_off :tmi.twitch.tv NOTICE #local7000 :Usage: "/slowoff"',
+        no_permission,
+        msg_channel_suspended
     ]
 }, {
     command: 'slowmode',
@@ -233,8 +253,9 @@ var tests = [{
     serverTest: '/slow',
     serverCommand: '@slow=150 :tmi.twitch.tv ROOMSTATE',
     errorCommands: [
-        '@msg-id=no_permission :tmi.twitch.tv NOTICE #local7000 : You don\'t have permission.',
-        '@msg-id=usage_slow_on :tmi.twitch.tv NOTICE #local7000 : Usage: "/slow [duration]"'
+        '@msg-id=usage_slow_on :tmi.twitch.tv NOTICE #local7000 :Usage: "/slow [duration]"',
+        no_permission,
+        msg_channel_suspended
     ]
 }, {
     command: 'slowmode',
@@ -249,8 +270,9 @@ var tests = [{
     serverTest: '/slowoff',
     serverCommand: '@slow=0 :tmi.twitch.tv ROOMSTATE',
     errorCommands: [
-        '@msg-id=no_permission :tmi.twitch.tv NOTICE #local7000 : You don\'t have permission.',
-        '@msg-id=usage_slow_off :tmi.twitch.tv NOTICE #local7000 : Usage: "/slowoff"'
+        '@msg-id=usage_slow_off :tmi.twitch.tv NOTICE #local7000 :Usage: "/slowoff"',
+        no_permission,
+        msg_channel_suspended
     ]
 }, {
     command: 'subscribers',
@@ -259,9 +281,10 @@ var tests = [{
     serverTest: '/subscribers',
     serverCommand: '@msg-id=subs_on :tmi.twitch.tv NOTICE #local7000',
     errorCommands: [
-        '@msg-id=already_subs_on :tmi.twitch.tv NOTICE #local7000 : This room is already in subscribers-only mode.',
-        '@msg-id=no_permission :tmi.twitch.tv NOTICE #local7000 : You don\'t have permission.',
-        '@msg-id=usage_subs_on :tmi.twitch.tv NOTICE #local7000 : Usage: "/subscribers"'
+        '@msg-id=already_subs_on :tmi.twitch.tv NOTICE #local7000 :This room is already in subscribers-only mode.',
+        '@msg-id=usage_subs_on :tmi.twitch.tv NOTICE #local7000 :Usage: "/subscribers"',
+        no_permission,
+        msg_channel_suspended
     ]
 }, {
     command: 'subscribersoff',
@@ -270,9 +293,10 @@ var tests = [{
     serverTest: '/subscribersoff',
     serverCommand: '@msg-id=subs_off :tmi.twitch.tv NOTICE #local7000',
     errorCommands: [
-        '@msg-id=already_subs_off :tmi.twitch.tv NOTICE #local7000 : This room is not in subscribers-only mode.',
-        '@msg-id=no_permission :tmi.twitch.tv NOTICE #local7000 : You don\'t have permission.',
-        '@msg-id=usage_subs_off :tmi.twitch.tv NOTICE #local7000 : Usage: "/subscribersoff"'
+        '@msg-id=already_subs_off :tmi.twitch.tv NOTICE #local7000 :This room is not in subscribers-only mode.',
+        '@msg-id=usage_subs_off :tmi.twitch.tv NOTICE #local7000 :Usage: "/subscribersoff"',
+        no_permission,
+        msg_channel_suspended
     ]
 }, {
     command: 'timeout',
@@ -281,13 +305,14 @@ var tests = [{
     serverTest: '/timeout',
     serverCommand: '@msg-id=timeout_success :tmi.twitch.tv NOTICE #local7000 :9000',
     errorCommands: [
-        '@msg-id=bad_timeout_admin :tmi.twitch.tv NOTICE #local7000 : You cannot timeout admin.',
-        '@msg-id=bad_timeout_broadcaster :tmi.twitch.tv NOTICE #local7000 : You cannot timeout broadcaster.',
-        '@msg-id=bad_timeout_global_mod :tmi.twitch.tv NOTICE #local7000 : You cannot timeout global moderator.',
-        '@msg-id=bad_timeout_self :tmi.twitch.tv NOTICE #local7000 : You cannot timeout yourself.',
-        '@msg-id=bad_timeout_staff :tmi.twitch.tv NOTICE #local7000 : You cannot timeout staff.',
-        '@msg-id=no_permission :tmi.twitch.tv NOTICE #local7000 : You don\'t have permission.',
-        '@msg-id=usage_timeout :tmi.twitch.tv NOTICE #local7000 : Usage: "/timeout [duration]"'
+        '@msg-id=bad_timeout_admin :tmi.twitch.tv NOTICE #local7000 :You cannot timeout admin.',
+        '@msg-id=bad_timeout_broadcaster :tmi.twitch.tv NOTICE #local7000 :You cannot timeout broadcaster.',
+        '@msg-id=bad_timeout_global_mod :tmi.twitch.tv NOTICE #local7000 :You cannot timeout global moderator.',
+        '@msg-id=bad_timeout_self :tmi.twitch.tv NOTICE #local7000 :You cannot timeout yourself.',
+        '@msg-id=bad_timeout_staff :tmi.twitch.tv NOTICE #local7000 :You cannot timeout staff.',
+        '@msg-id=usage_timeout :tmi.twitch.tv NOTICE #local7000 :Usage: "/timeout [duration]"',
+        no_permission,
+        msg_channel_suspended
     ]
 }, {
     command: 'timeout',
@@ -302,9 +327,10 @@ var tests = [{
     serverTest: '/unban',
     serverCommand: '@msg-id=unban_success :tmi.twitch.tv NOTICE #local7000 :baduser',
     errorCommands: [
-        '@msg-id=bad_unban_no_ban :tmi.twitch.tv NOTICE #local7000 : That user is not banned from this room.',
-        '@msg-id=no_permission :tmi.twitch.tv NOTICE #local7000 : You don\'t have permission.',
-        '@msg-id=usage_unban :tmi.twitch.tv NOTICE #local7000 : Usage: "/unban "'
+        '@msg-id=bad_unban_no_ban :tmi.twitch.tv NOTICE #local7000 :That user is not banned from this room.',
+        '@msg-id=usage_unban :tmi.twitch.tv NOTICE #local7000 :Usage: "/unban "',
+        no_permission,
+        msg_channel_suspended
     ]
 }, {
     command: 'unhost',
@@ -313,9 +339,10 @@ var tests = [{
     serverTest: '/unhost',
     serverCommand: ':tmi.twitch.tv HOSTTARGET #local7000 :- 0',
     errorCommands: [
-        '@msg-id=not_hosting :tmi.twitch.tv NOTICE #local7000 : No channel is currently being hosted.',
-        '@msg-id=no_permission :tmi.twitch.tv NOTICE #local7000 : You don\'t have permission.',
-        '@msg-id=usage_unhost :tmi.twitch.tv NOTICE #local7000 : Usage: "/unhost"'
+        '@msg-id=not_hosting :tmi.twitch.tv NOTICE #local7000 :No channel is currently being hosted.',
+        '@msg-id=usage_unhost :tmi.twitch.tv NOTICE #local7000 :Usage: "/unhost"',
+        no_permission,
+        // msg_channel_suspended
     ]
 }, {
     command: 'unmod',
@@ -324,10 +351,42 @@ var tests = [{
     serverTest: '/unmod',
     serverCommand: '@msg-id=unmod_success :tmi.twitch.tv NOTICE #local7000 :moddymcmodface',
     errorCommands: [
-        '@msg-id=bad_unmod_mod :tmi.twitch.tv NOTICE #local7000 : That user is not a moderator of this room.',
-        '@msg-id=no_permission :tmi.twitch.tv NOTICE #local7000 : You don\'t have permission.',
-        '@msg-id=usage_unmod :tmi.twitch.tv NOTICE #local7000 : Usage: "/unmod "'
+        '@msg-id=bad_unmod_mod :tmi.twitch.tv NOTICE #local7000 :That user is not a moderator of this room.',
+        '@msg-id=usage_unmod :tmi.twitch.tv NOTICE #local7000 :Usage: "/unmod "',
+        no_permission,
+        msg_channel_suspended
     ]
+}, {
+    command: 'vip',
+    inputParams: ['#local7000', 'schmoopiie'],
+    returnedParams: ['#local7000', 'schmoopiie'],
+    serverTest: '/vip',
+    serverCommand: '@msg-id=vip_success :tmi.twitch.tv NOTICE #local7000 :You have added User as a vip of this channel.',
+    errorCommands: [
+        '@msg-id=bad_vip_grantee_banned :tmi.twitch.tv NOTICE #local7000 :User is banned in this channel. You must unban this user before granting VIP status.',
+        '@msg-id=bad_vip_grantee_already_vip :tmi.twitch.tv NOTICE #local7000 :User is already a VIP of this channel.',
+        '@msg-id=usage_vip :tmi.twitch.tv NOTICE #local7000 :Usage: "/vip User" - Grant mod status to a user.',
+        no_permission,
+        msg_channel_suspended
+    ]
+}, {
+    command: 'unvip',
+    inputParams: ['#local7000', 'schmoopiie'],
+    returnedParams: ['#local7000', 'schmoopiie'],
+    serverTest: '/unvip',
+    serverCommand: '@msg-id=unvip_success :tmi.twitch.tv NOTICE #local7000 :You have removed User as a VIP of this channel..',
+    errorCommands: [
+        '@msg-id=bad_unvip_grantee_not_vip :tmi.twitch.tv NOTICE #local7000 :User is not a VIP of this channel.',
+        '@msg-id=usage_unvip :tmi.twitch.tv NOTICE #local7000 :Usage: "/unvip User" - Revoke VIP status from a user. Use "vips" to list the VIPs of this channel.',
+        no_permission,
+        msg_channel_suspended
+    ]
+}, {
+    command: 'vips',
+    inputParams: ['#local7000'],
+    returnedParams: [],
+    serverTest: '/vips',
+    serverCommand: '@msg-id=no_vips :tmi.twitch.tv NOTICE #local7000 :This channel does not have any VIPs.'
 }, {
     command: 'whisper',
     inputParams: ['moddymcmodface', 'You got unmodded! D:'],
@@ -355,14 +414,14 @@ describe('commands (justinfan)', function () {
         this.client = null;
     });
 
-    it('should handle commands when disconnected', function (cb) {
-        this.client.subscribers('local7000').then(noop, function (err) {
+    it('handles commands when disconnected', function(cb) {
+        this.client.subscribers('local7000').then(noop, function(err) {
             err.should.eql('Not connected to server.');
             cb();
         });
     });
 
-    it('should handle ping', function (cb) {
+    it('handles ping', function(cb) {
         var client = this.client;
         var server = this.server;
 
@@ -382,10 +441,10 @@ describe('commands (justinfan)', function () {
             });
         });
 
-        client.connect();
+        client.connect().catch(catchConnectError);
     });
 
-    it('should handle ping timeout', function (cb) {
+    it('handles ping timeout', function(cb) {
         var client = this.client;
         var server = this.server;
 
@@ -402,7 +461,7 @@ describe('commands (justinfan)', function () {
             });
         });
 
-        client.connect();
+        client.connect().catch(catchConnectError);
     });
 
     tests.forEach(function (test) {
@@ -410,10 +469,10 @@ describe('commands (justinfan)', function () {
             var client = this.client;
             var server = this.server;
 
-            server.on('connection', function (ws) {
-                ws.on('message', function (message) {
-                    // Ensure that the message starts with USER
-                    if (!message.indexOf('USER')) {
+            server.on('connection', function(ws) {
+                ws.on('message', function(message) {
+                    // Ensure that the message starts with NICK
+                    if (!message.indexOf('NICK')) {
                         var user = client.getUsername();
                         ws.send(`:${user}! JOIN #local7000`);
                         return;
@@ -439,7 +498,7 @@ describe('commands (justinfan)', function () {
                 });
             });
 
-            client.connect();
+            client.connect().catch(catchConnectError);
         });
 
         if (test.errorCommands) {
@@ -448,10 +507,10 @@ describe('commands (justinfan)', function () {
                     var client = this.client;
                     var server = this.server;
 
-                    server.on('connection', function (ws) {
-                        ws.on('message', function (message) {
-                            // Ensure that the message starts with USER
-                            if (!message.indexOf('USER')) {
+                    server.on('connection', function(ws) {
+                        ws.on('message', function(message) {
+                            // Ensure that the message starts with NICK
+                            if (!message.indexOf('NICK')) {
                                 var user = client.getUsername();
                                 ws.send(`:${user}! JOIN #local7000`);
                                 return;
@@ -471,7 +530,7 @@ describe('commands (justinfan)', function () {
                         });
                     });
 
-                    client.connect();
+                    client.connect().catch(catchConnectError);
                 });
             });
         }
@@ -481,10 +540,10 @@ describe('commands (justinfan)', function () {
                 var client = this.client;
                 var server = this.server;
 
-                server.on('connection', function (ws) {
-                    ws.on('message', function (message) {
-                        // Ensure that the message starts with USER
-                        if (!message.indexOf('USER')) {
+                server.on('connection', function(ws) {
+                    ws.on('message', function(message) {
+                        // Ensure that the message starts with NICK
+                        if (!message.indexOf('NICK')) {
                             ws.send(`dummy`);
                             return;
                         }
@@ -499,7 +558,7 @@ describe('commands (justinfan)', function () {
                     });
                 });
 
-                client.connect();
+                client.connect().catch(catchConnectError);
             });
         }
     });
@@ -547,7 +606,7 @@ describe('commands (identity)', function () {
             });
         });
 
-        client.connect();
+        client.connect().catch(catchConnectError);
     });
 
     it(`should handle say`, function (cb) {
@@ -557,7 +616,7 @@ describe('commands (identity)', function () {
         server.on('connection', function (ws) {
             ws.on('message', function (message) {
                 if (~message.indexOf('Hello')) {
-                    ws.send(':tmi.twitch.tv PRIVMSG #local7000 : Hello');
+                    ws.send(':tmi.twitch.tv PRIVMSG #local7000 :Hello');
                 }
             });
         });
@@ -571,7 +630,7 @@ describe('commands (identity)', function () {
             });
         });
 
-        client.connect();
+        client.connect().catch(catchConnectError);
     });
 
     it(`should handle say when disconnected`, function (cb) {
@@ -584,19 +643,43 @@ describe('commands (identity)', function () {
     it(`should break up long messages (> 500 characters)`, function (cb) {
         var client = this.client;
         var server = this.server;
-        var lorem = `lorem lorem lorem lorem lorem lorem lorem lorem lorem lorem
-                     lorem lorem lorem lorem lorem lorem lorem lorem lorem lorem
-                     lorem lorem lorem lorem lorem lorem lorem lorem lorem lorem
-                     lorem lorem lorem lorem lorem lorem lorem lorem lorem lorem
-                     lorem lorem lorem lorem lorem lorem lorem lorem lorem lorem
-                     lorem lorem lorem lorem lorem lorem lorem lorem lorem lorem
-                     lorem lorem lorem lorem lorem lorem lorem lorem ipsum`;
+        var lorem = 'lorem '.repeat(89) + 'ipsum';
+        var calls = 0;
+
+        server.on('connection', function(ws) {
+            ws.on('message', function(message) {
+                if (~message.indexOf('PRIVMSG')) {
+                    ws.send(`:tmi.twitch.tv PRIVMSG #local7000 :${message.split(':')[1]}`);
+                }
+            });
+        });
+
+        client.on('chat', function(channel, user, message) {
+            calls++;
+            if (calls > 1) {
+                message.should.containEql('ipsum');
+                client.disconnect();
+                cb();
+            }
+        });
+
+        client.on('logon', function() {
+            client.say('#local7000', lorem);
+        });
+
+        client.connect().catch(catchConnectError);
+    });
+
+    it(`should break up long messages without spaces (> 500 characters)`, function(cb) {
+        var client = this.client;
+        var server = this.server;
+        var lorem = 'lorem'.repeat(100) + 'ipsum';
         var calls = 0;
 
         server.on('connection', function (ws) {
             ws.on('message', function (message) {
                 if (~message.indexOf('PRIVMSG')) {
-                    ws.send(`:tmi.twitch.tv PRIVMSG #local7000 : ${message.split(':')[1]}`);
+                    ws.send(`:tmi.twitch.tv PRIVMSG #local7000 :${message.split(':')[1]}`);
                 }
             });
         });
@@ -614,7 +697,7 @@ describe('commands (identity)', function () {
             client.say('#local7000', lorem);
         });
 
-        client.connect();
+        client.connect().catch(catchConnectError);
     });
 
     ['/me', '\\me', '.me'].forEach(function (me) {
@@ -625,7 +708,7 @@ describe('commands (identity)', function () {
             server.on('connection', function (ws) {
                 ws.on('message', function (message) {
                     if (~message.indexOf('Hello')) {
-                        ws.send(':tmi.twitch.tv PRIVMSG #local7000 : Hello');
+                        ws.send(':tmi.twitch.tv PRIVMSG #local7000 :Hello');
                     }
                 });
             });
@@ -639,7 +722,7 @@ describe('commands (identity)', function () {
                 });
             });
 
-            client.connect();
+            client.connect().catch(catchConnectError);
         });
     });
 
@@ -656,7 +739,7 @@ describe('commands (identity)', function () {
                 });
             });
 
-            client.connect();
+            client.connect().catch(catchConnectError);
         });
     });
 
@@ -674,7 +757,7 @@ describe('commands (identity)', function () {
                 });
             });
 
-            client.connect();
+            client.connect().catch(catchConnectError);
         });
     });
 });

@@ -1,4 +1,5 @@
-var tmi = require('../src/index.js');
+var should = require('should');
+var tmi = require('../index.js');
 
 var events = [{
     name: 'action',
@@ -25,34 +26,48 @@ var events = [{
     ]
 }, {
     name: 'ban',
-    data: '@ban-reason=this\\sis\\sa\\stest :tmi.twitch.tv CLEARCHAT #schmoopiie :schmoopiie',
+    data: '@room-id=20624989;target-user-id=20624989 :tmi.twitch.tv CLEARCHAT #schmoopiie :schmoopiie',
     expected: [
         '#schmoopiie',
         'schmoopiie',
-        'this is a test'
+        null,
+        {
+            'room-id': '20624989',
+            'target-user-id': '20624989'
+        }
     ]
 }, {
     name: 'chat',
-    data: "@badges=broadcaster/1,warcraft/horde;color=#0D4200;display-name=Schmoopiie;emotes=25:0-4,12-16/1902:6-10;subscriber=0;turbo=1;user-type=global_mod :schmoopiie!~schmoopiie@schmoopiie.tmi.twitch.tv PRIVMSG #schmoopiie :Hello :)",
+    // data: "@badges=broadcaster/1,warcraft/horde;color=#0D4200;display-name=Schmoopiie;emotes=25:0-4,12-16/1902:6-10;subscriber=0;turbo=1;user-type=global_mod :schmoopiie!~schmoopiie@schmoopiie.tmi.twitch.tv PRIVMSG #schmoopiie :Hello :)",
+    data: "@badge-info=subscriber/21;badges=broadcaster/1,subscriber/12,overwatch-league-insider_2019A/1;color=#177DE3;display-name=Alca;emotes=499:3-4;flags=;id=c5ddcb05-85ae-4a60-91bc-7704c7031257;mod=0;room-id=7676884;subscriber=1;tmi-sent-ts=1554296462753;turbo=0;user-id=7676884;user-type= :alca!alca@alca.tmi.twitch.tv PRIVMSG #alca :Hi :)",
     expected: [
-        '#schmoopiie',
+        '#alca',
         {
-            badges: { broadcaster: '1', warcraft: 'horde' },
-            color: '#0D4200',
-            'display-name': 'Schmoopiie',
-            emotes: {
-                '25': ['0-4', '12-16'],
-                '1902': ['6-10']
+            'badge-info': { subscriber: '21' },
+            badges: {
+                broadcaster: '1',
+                subscriber: '12',
+                'overwatch-league-insider_2019A': '1'
             },
-            subscriber: false,
-            turbo: true,
-            'user-type': 'global_mod',
-            'emotes-raw': '25:0-4,12-16/1902:6-10',
-            'badges-raw': 'broadcaster/1,warcraft/horde',
-            username: 'schmoopiie',
+            color: '#177DE3',
+            'display-name': 'Alca',
+            emotes: { '499': [ '3-4' ] },
+            flags: null,
+            id: 'c5ddcb05-85ae-4a60-91bc-7704c7031257',
+            mod: false,
+            'room-id': '7676884',
+            subscriber: true,
+            'tmi-sent-ts': '1554296462753',
+            turbo: false,
+            'user-id': '7676884',
+            'user-type': null,
+            'emotes-raw': '499:3-4',
+            'badge-info-raw': 'subscriber/21',
+            'badges-raw': 'broadcaster/1,subscriber/12,overwatch-league-insider_2019A/1',
+            username: 'alca',
             'message-type': 'chat'
         },
-        'Hello :)'
+        'Hi :)'
     ]
 }, {
     name: 'cheer',
@@ -127,6 +142,13 @@ var events = [{
         '#schmoopiie',
         ['user1', 'user2', 'user3']
     ]
+},  {
+    name: 'mods',
+    data: '@msg-id=no_mods :tmi.twitch.tv NOTICE #schmoopiie :There are no moderators of this channel.',
+    expected: [
+        '#schmoopiie',
+        []
+    ]
 }, {
     name: 'part',
     data: ':schmoopiie!schmoopiie@schmoopiie.tmi.twitch.tv PART #schmoopiie',
@@ -186,11 +208,11 @@ var events = [{
     ]
 }, {
     name: 'subanniversary',
-    data: '@badges=staff/1,subscriber/6,turbo/1;color=#008000;display-name=Schmoopiie;emotes=;mod=0;msg-id=resub;msg-param-months=6;room-id=20624989;subscriber=1;msg-param-sub-plan=Prime;msg-param-sub-plan-name=Channel\\sSubscription\\s(Schmoopiie);system-msg=Schmoopiie\\shas\\ssubscribed\\sfor\\s6\\smonths!;login=schmoopiie;turbo=1;user-id=20624989;user-type=staff :tmi.twitch.tv USERNOTICE #schmoopiie :Great stream -- keep it up!',
+    data: '@badges=staff/1,subscriber/6,turbo/1;color=#008000;display-name=Schmoopiie;emotes=;flags=;id=00000000-0000-0000-0000-000000000000;login=schmoopiie;mod=0;msg-id=resub;msg-param-cumulative-months=7;msg-param-should-share-streak=0;msg-param-sub-plan-name=Channel\\sSubscription\\s(Schmoopiie);msg-param-sub-plan=Prime;room-id=20624989;subscriber=1;system-msg=Schmoopiie\\sSubscribed\\swith\\sTwitch\\sPrime.;tmi-sent-ts=1500000000000;turbo=0;user-id=20624989;user-type=staff :tmi.twitch.tv USERNOTICE #schmoopiie :Great stream -- keep it up!',
     expected: [
         '#schmoopiie',
         'Schmoopiie',
-        6,
+        0,
         'Great stream -- keep it up!',
         {
             badges: { staff: '1', subscriber: '6', turbo: '1' },
@@ -199,29 +221,33 @@ var events = [{
             'display-name': 'Schmoopiie',
             emotes: null,
             'emotes-raw': null,
+            flags: null,
+            id: '00000000-0000-0000-0000-000000000000',
             login: 'schmoopiie',
             'message-type': 'resub',
             mod: false,
             'msg-id': 'resub',
-            'msg-param-months': '6',
+            'msg-param-cumulative-months': '7',
+            'msg-param-should-share-streak': false,
             'msg-param-sub-plan': 'Prime',
-            'msg-param-sub-plan-name': 'Channel\\sSubscription\\s(Schmoopiie)',
+            'msg-param-sub-plan-name': 'Channel Subscription (Schmoopiie)',
             'room-id': '20624989',
             subscriber: true,
-            'system-msg': 'Schmoopiie\\shas\\ssubscribed\\sfor\\s6\\smonths!',
-            turbo: true,
+            'system-msg': 'Schmoopiie Subscribed with Twitch Prime.',
+            'tmi-sent-ts': '1500000000000',
+            turbo: false,
             'user-id': '20624989',
             'user-type': 'staff'
         },
         {
-            'prime': true,
-            'plan': 'Prime',
-            'planName': 'Channel Subscription (Schmoopiie)'
+          prime: true,
+          plan: 'Prime',
+          planName: 'Channel Subscription (Schmoopiie)'
         }
     ]
 }, {
     name: 'resub',
-    data: '@badges=staff/1,subscriber/6,turbo/1;color=#008000;display-name=Schmoopiie;emotes=;mod=0;msg-id=resub;msg-param-months=6;room-id=20624989;subscriber=1;msg-param-sub-plan=Prime;msg-param-sub-plan-name=Channel\\sSubscription\\s(Schmoopiie);system-msg=Schmoopiie\\shas\\ssubscribed\\sfor\\s6\\smonths!;login=schmoopiie;turbo=1;user-id=20624989;user-type=staff :tmi.twitch.tv USERNOTICE #schmoopiie :Great stream -- keep it up!',
+    data: '@badges=staff/1,subscriber/6,turbo/1;color=#008000;display-name=Schmoopiie;emotes=;flags=;id=00000000-0000-0000-0000-000000000000;login=schmoopiie;mod=0;msg-id=resub;msg-param-cumulative-months=7;msg-param-should-share-streak=1;msg-param-streak-months=6;msg-param-sub-plan-name=Channel\\sSubscription\\s(Schmoopiie);msg-param-sub-plan=Prime;room-id=20624989;subscriber=1;system-msg=Schmoopiie\\sSubscribed\\swith\\sTwitch\\sPrime.;tmi-sent-ts=1500000000000;turbo=0;user-id=20624989;user-type=staff :tmi.twitch.tv USERNOTICE #schmoopiie :Great stream -- keep it up!',
     expected: [
         '#schmoopiie',
         'Schmoopiie',
@@ -234,25 +260,30 @@ var events = [{
             'display-name': 'Schmoopiie',
             emotes: null,
             'emotes-raw': null,
+            flags: null,
+            id: '00000000-0000-0000-0000-000000000000',
             login: 'schmoopiie',
             'message-type': 'resub',
             mod: false,
             'msg-id': 'resub',
-            'msg-param-months': '6',
+            'msg-param-cumulative-months': '7',
+            'msg-param-should-share-streak': true,
+            'msg-param-streak-months': '6',
             'msg-param-sub-plan': 'Prime',
-            'msg-param-sub-plan-name': 'Channel\\sSubscription\\s(Schmoopiie)',
+            'msg-param-sub-plan-name': 'Channel Subscription (Schmoopiie)',
             'room-id': '20624989',
             subscriber: true,
-            'system-msg': 'Schmoopiie\\shas\\ssubscribed\\sfor\\s6\\smonths!',
-            turbo: true,
+            'system-msg': 'Schmoopiie Subscribed with Twitch Prime.',
+            'tmi-sent-ts': '1500000000000',
+            turbo: false,
             'user-id': '20624989',
             'user-type': 'staff'
         },
         {
-            'prime': true,
-            'plan': 'Prime',
-            'planName': 'Channel Subscription (Schmoopiie)'
-        },
+          prime: true,
+          plan: 'Prime',
+          planName: 'Channel Subscription (Schmoopiie)'
+        }
     ]
 }, {
     name: 'subscribers',
@@ -292,10 +323,10 @@ var events = [{
             mod: false,
             'msg-id': 'sub',
             'msg-param-sub-plan': 'Prime',
-            'msg-param-sub-plan-name': 'Channel\\sSubscription\\s(Schmoopiie)',
+            'msg-param-sub-plan-name': 'Channel Subscription (Schmoopiie)',
             'room-id': '20624989',
             subscriber: true,
-            'system-msg': 'Schmoopiie\\sjust\\ssubscribed!',
+            'system-msg': 'Schmoopiie just subscribed!',
             turbo: true,
             'user-id': '20624989',
             'user-type': 'staff'
@@ -303,12 +334,17 @@ var events = [{
     ]
 }, {
     name: 'timeout',
-    data: '@ban-duration=60;ban-reason=this\\sis\\sa\\stest :tmi.twitch.tv CLEARCHAT #schmoopiie :schmoopiie',
+    data: '@ban-duration=60;room-id=20624989;target-user-id=20624989 :tmi.twitch.tv CLEARCHAT #schmoopiie :schmoopiie',
     expected: [
         '#schmoopiie',
         'schmoopiie',
-        'this is a test',
-        60
+        null,
+        60,
+        {
+            'ban-duration': '60',
+            'room-id': '20624989',
+            'target-user-id': '20624989'
+        }
     ]
 }, {
     name: 'unhost',
@@ -349,14 +385,19 @@ describe('client events', function () {
         var name = e.name;
         var data = e.data;
         var expected = e.expected;
-        it(`should emit ${name}`, function (cb) {
+        it(`emit ${name}`, function(cb) {
             var client = new tmi.client();
 
-            client.on(name, function () {
-                var args = Array.prototype.slice.call(arguments);
-                'Should have reached this callback'.should.be.ok();
-                expected && expected.forEach(function (data, index) {
-                    args[index].should.eql(data);
+            client.on(name, function(...args) {
+                'Reach this callback'.should.be.ok();
+                expected && expected.forEach(function(data, index) {
+                    // console.log({ a: args[index], data });
+                    if(data === null) {
+                        should.not.exist(args[index]);
+                    }
+                    else {
+                        args[index].should.eql(data);
+                    }
                 });
                 cb();
             });
@@ -365,7 +406,7 @@ describe('client events', function () {
         });
     });
 
-    it('should emit disconnected', function (cb) {
+    it('emits disconnected', function(cb) {
         var client = new tmi.client();
 
         client.on("disconnected", function (reason) {

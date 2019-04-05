@@ -26,12 +26,12 @@
     "LICENSE"
   ],
   "engines": {
-    "node": ">=4.4.0"
+    "node": ">=7.10.1"
   },
   "author": "AhadCove",
   "scripts": {
-    "test": "istanbul cover node_modules/mocha/bin/_mocha -- -R spec --require should",
     "prepare": "npm run build",
+    "test": "istanbul cover node_modules/mocha/bin/_mocha -- --require should --exit",
     "build": "npm-run-all --sequential build:*",
     "build:rimraf": "rimraf ./lib && rimraf ./dist",
     "build:mkdirp": "mkdirp ./lib && mkdirp ./dist",
@@ -51,8 +51,8 @@
     "url": "https://github.com/AhadCove/react-tmi/issues"
   },
   "dependencies": {
-    "request": "2.86.0",
-    "ws": "5.1.1"
+    "request": "2.88.0",
+    "ws": "6.1.3"
   },
   "devDependencies": {
     "babel-cli": "6.24.1",
@@ -62,7 +62,7 @@
     "hook-std": "0.2.0",
     "istanbul": "0.4.5",
     "mkdirp": "0.5.1",
-    "mocha": "2.2.5",
+    "mocha": "5.2.0",
     "npm-run-all": "1.7.0",
     "rimraf": "2.5.2",
     "should": "7.0.4",

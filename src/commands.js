@@ -172,6 +172,21 @@ module.exports = {
             });
         });
     },
+	
+	
+    // Delete a specific message on a channel
+    deletemessage: function deletemessage(channel, messageUUID) {
+        channel = _.channel(channel);
+
+        // Send the command to the server and race the Promise against a delay..
+        return this._sendCommand(this._getPromiseDelay(), channel, `/delete ${messageUUID}`, (resolve, reject) => {
+            // Received _promiseDeletemessage event, resolve or reject..
+            this.once("_promiseDeletemessage", (err) => {
+                if (!err) { resolve([channel]); }
+                else { reject(err); }
+            });
+        });
+    },
 
     // Enable emote-only mode on a channel..
     emoteonly: function emoteonly(channel) {
@@ -269,7 +284,7 @@ module.exports = {
                     // Update the internal list of moderators..
                     mods.forEach((username) => {
                         if (!this.moderators[channel]) { this.moderators[channel] = []; }
-                        if (this.moderators[channel].indexOf(username) < 0) { this.moderators[channel].push(username); }
+                        if (!this.moderators[channel].includes(username)) { this.moderators[channel].push(username); }
                     });
                     resolve(mods);
                 } else { reject(err); }
@@ -454,6 +469,50 @@ module.exports = {
             // Received _promiseUnmod event, resolve or reject..
             this.once("_promiseUnmod", (err) => {
                 if (!err) { resolve([channel, username]); }
+                else { reject(err); }
+            });
+        });
+    },
+
+    // Unvip username on channel..
+    unvip: function unvip(channel, username) {
+        channel = _.channel(channel);
+        username = _.username(username);
+
+        // Send the command to the server and race the Promise against a delay..
+        return this._sendCommand(this._getPromiseDelay(), channel, `/unvip ${username}`, (resolve, reject) => {
+            // Received _promiseUnvip event, resolve or reject..
+            this.once("_promiseUnvip", (err) => {
+                if (!err) { resolve([channel, username]); }
+                else { reject(err); }
+            });
+        });
+    },
+
+    // Add username to VIP list on channel..
+    vip: function vip(channel, username) {
+        channel = _.channel(channel);
+        username = _.username(username);
+
+        // Send the command to the server and race the Promise against a delay..
+        return this._sendCommand(this._getPromiseDelay(), channel, `/vip ${username}`, (resolve, reject) => {
+            // Received _promiseVip event, resolve or reject..
+            this.once("_promiseVip", (err) => {
+                if (!err) { resolve([channel, username]); }
+                else { reject(err); }
+            });
+        });
+    },
+
+    // Get list of VIPs on a channel..
+    vips: function vips(channel) {
+        channel = _.channel(channel);
+
+        // Send the command to the server and race the Promise against a delay..
+        return this._sendCommand(this._getPromiseDelay(), channel, "/vips", (resolve, reject) => {
+            // Received _promiseVips event, resolve or reject..
+            this.once("_promiseVips", (err, vips) => {
+                if (!err) { resolve(vips); }
                 else { reject(err); }
             });
         });

@@ -14,10 +14,10 @@ var tests = [
     ':schmoopiie!schmoopiie@schmoopiie.tmi.twitch.tv 366'
 ];
 
-describe('no-op server events', function () {
-    tests.forEach(function (test) {
-        it(`should treat "${test}" as a no-op`, function () {
-            var stopTest = function () {
+describe('no-op server events', function() {
+    tests.forEach(function(test) {
+        it(`treat "${test}" as a no-op`, function() {
+            var stopTest = function() {
                 'Should not call this'.should.not.be.ok();
             };
 

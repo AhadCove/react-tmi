@@ -6,36 +6,34 @@ var api = function api(options, callback) {
     var url = _.get(options.url, null) === null ? _.get(options.uri, null) : _.get(options.url, null);
 
     // Make sure it is a valid url..
-    if (!_.isURL(url)) { url = url.charAt(0) === "/" ? `https://api.twitch.tv/kraken${url}` : `https://api.twitch.tv/kraken/${url}`; }
+    if (!_.isURL(url)) { url = "https://api.twitch.tv/kraken" + (url[0] === "/" ? url : `/${url}`); }
 
     // We are inside a Node application, so we can use the request module..
     if (_.isNode()) {
-        request(_.merge(options, { url: url, method: "GET", json: true }), function (err, res, body) {
-            callback(err, res, body);
-        });
+        request(_.merge({ method: "GET", json: true }, options, { url: url }), callback);
     }
     // Inside an extension -> we cannot use jsonp!
     else if (_.isExtension()) {
-      options = _.merge(options, { url: url, method: "GET", headers: {} })
-      // prepare request
-      var xhr = new XMLHttpRequest();
-      xhr.open(options.method, options.url, true);
-      for(var name in options.headers) {
-        xhr.setRequestHeader(name, options.headers[name]);
-      }
-      xhr.responseType = "json";
-      // set request handler
-      xhr.addEventListener("load", (ev) => {
-        if(xhr.readyState == 4) {
-          if(xhr.status != 200) {
-            callback(xhr.status, null, null);
-          } else {
-            callback(null, null, xhr.response);
-          }
+        options = _.merge({ url: url, method: "GET", headers: {} }, options);
+        // prepare request
+        var xhr = new XMLHttpRequest();
+        xhr.open(options.method, options.url, true);
+        for(var name in options.headers) {
+            xhr.setRequestHeader(name, options.headers[name]);
         }
-      });
-      // submit
-      xhr.send();
+        xhr.responseType = "json";
+        // set request handler
+        xhr.addEventListener("load", (ev) => {
+            if(xhr.readyState == 4) {
+                if(xhr.status != 200) {
+                    callback(xhr.status, null, null);
+                } else {
+                    callback(null, null, xhr.response);
+                }
+            }
+        });
+        // submit
+        xhr.send();
     }
     // Inside a web application, use jsonp..
     else {
@@ -49,7 +47,7 @@ var api = function api(options, callback) {
 
         // Inject the script in the document..
         var script = document.createElement("script");
-        script.src = `${url}${url.indexOf("?") >= 0 ? "&" : "?"}callback=${callbackName}`;
+        script.src = `${url}${url.includes("?") ? "&" : "?"}callback=${callbackName}`;
         document.body.appendChild(script);
     }
 }
